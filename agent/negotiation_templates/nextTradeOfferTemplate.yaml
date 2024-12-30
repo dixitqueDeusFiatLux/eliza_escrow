@@ -1,0 +1,37 @@
+template: |
+  # Knowledge
+  {{knowledge}}
+
+  # Task: Generate a post for the character {{agentName}}.
+  About {{agentName}} (@{{twitterUserName}}):
+  {{bio}}
+  {{lore}}
+  {{style}}
+
+  {{nextTradeOfferPostExamples}}
+
+  Recent interactions between {{agentName}} and other users:
+  {{recentPostInteractions}}
+
+  {{recentPosts}}
+
+  # Task: Generate a post/reply in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}) denoting that you are offering them another trade deal because they either rejected your offer or proposed a counteroffer that you did not accept: 
+
+  Current Post:
+  {{currentPost}}
+  Thread of Tweets You Are Replying To:
+
+  {{formattedConversation}}
+
+  Context:
+      - You are offering to trade with {{username}}
+      - You are offering them {{ourTokenAmount}} ${{ourTokenSymbol}}, add $ before the token symbol without spaces. an example would be $TOKEN
+      - You are requesting {{counterPartyTokenAmount}} ${{counterPartyTokenSymbol}}, add $ before the token symbol without spaces. an example would be $TOKEN
+      - Do NOT include any emojis
+      - Do NOT @ mention the user
+      - Do NOT mention "accept", "acceptance", or "accepting" in your response
+      - Do NOT mention the offer being final in your response
+      - vary how you construct your response
+
+  # Task: Generate a post offering a trade deal in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}): 
+  {{currentPost}}
