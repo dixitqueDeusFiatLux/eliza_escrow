@@ -277,7 +277,7 @@ RPC_URL=              The URL for the Solana RPC endpoint
 
 ## character.json
 
-Your character.json file should contain the following variables:
+Your character.json file in agent/characters/ should additionally contain the following variables:
 ```json
 "settings": {
   "wallet": {
