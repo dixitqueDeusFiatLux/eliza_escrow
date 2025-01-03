@@ -28,6 +28,3 @@ template: |
       - Do NOT include any emojis
       - Do NOT @ mention the user
       - vary how you construct your response
-
-  # Task: Generate a post offering a trade deal in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}): 
-  {{currentPost}}

@@ -195,12 +195,13 @@ export class NegotiationHandler {
         }
 
         const counterpartyTierSettings = await this.getCounterpartyTierSettings(user);
-
         const refractoryPeriodDays = counterpartyTierSettings.refractory_period_days;
-
+        
+        const refractoryPeriodMs = refractoryPeriodDays * 24 * 60 * 60 * 1000;
+        
         const lastInteraction = new Date(negotiationState.last_interaction);
-        const refractoryPeriodAgo = new Date();
-        refractoryPeriodAgo.setDate(refractoryPeriodAgo.getDate() - refractoryPeriodDays);
+        const now = new Date();
+        const refractoryPeriodAgo = new Date(now.getTime() - refractoryPeriodMs);
 
         return lastInteraction > refractoryPeriodAgo;
     }
@@ -358,16 +359,16 @@ export class NegotiationHandler {
                         return true;
                     }
                 }
-
+                
                 if (await this.hasTooRecentAnInteraction(user, negotiationState)) {
+                    elizaLogger.log("Has recent interaction: ignoring", user);
                     if (tweet.mentions.some(mention => mention.username === this.client.runtime.getSetting("TWITTER_USERNAME"))) {
-                        elizaLogger.log("Has recent interaction: ignoring", user);
+                        return true;
                         //elizaLogger.log("Has recent interaction: responding with hasTooRecentAnInteractionPost", user);
                         //const success = await this.hasTooRecentAnInteractionPost(tweet, thread, message, negotiationState);
                         //return success;
-                        return true;
                     } else {
-                        return false; // dont respond? From home timeline
+                        return true; // dont respond? From home timeline
                     }
                 } else {
                     // Reset user since he can do a new negotiation
@@ -969,7 +970,6 @@ export class NegotiationHandler {
 
             elizaLogger.log(`Accepting deal with ${user.username}`);
             elizaLogger.log(`ourTokenAmount: ${negotiationState.current_offer.amount}, counterPartyTokenAmount: ${negotiationState.current_offer.counterparty_amount}`);
-            const formattedConversation = this.getFormattedConversation(thread);
 
             let tradeMessage = '';
             let negotiationStatus = '';
@@ -979,45 +979,39 @@ export class NegotiationHandler {
                     elizaLogger.log("Escrow initiated");
                     tradeMessage = `Deal. I have sent ${negotiationState.current_offer.amount} $${negotiationSettings.our_token.symbol} \nTx ID: ${execution.transactionId} \nsend the ${negotiationState.current_offer.counterparty_amount} $${user.token_symbol} to the escrow address: \n${execution.walletAddress}. \n\n`;
                     negotiationStatus = 'initiated_escrow';
+
+                    await this.sendReply(tweet, message, tradeMessage, tweet.id);
                 } else {
                     elizaLogger.log("Escrow failed", tweet);
                     return false;
                 }
             } else {
-                // TODO: Add logic to handle non-initiator trades
                 elizaLogger.log("Waiting for escrow to be initiated");
                 negotiationStatus = 'waiting_for_escrow';
-                tradeMessage = ``;
+                const state = await this.client.runtime.composeState(message, {
+                    acceptDealPostExamples: this.client.runtime.character.acceptDealPostExamples,
+                    twitterClient: this.client.twitterClient,
+                    twitterUserName: settings.TWITTER_USERNAME,
+                    currentPost: tweet.text,
+                    username: user.username,
+                });
+
+                elizaLogger.log(`Accepted deal with ${user.username}`);
+                const context = composeContext({
+                    state,
+                    template: this.acceptDealTemplate 
+                });
+
+                const response = await generateMessageResponse({
+                    runtime: this.client.runtime,
+                    context,
+                    modelClass: ModelClass.MEDIUM,
+                });
+
+                await this.sendReply(tweet, message, response.text, tweet.id);
             }
 
-            const state = await this.client.runtime.composeState(message, {
-                acceptDealPostExamples: this.client.runtime.character.acceptDealPostExamples,
-                twitterClient: this.client.twitterClient,
-                twitterUserName: settings.TWITTER_USERNAME,
-                currentPost: tweet.text,
-                formattedConversation: formattedConversation,
-                username: user.username,
-                ourTokenSymbol: negotiationSettings.our_token.symbol,
-                counterPartyTokenSymbol: user.token_symbol,
-                ourTokenAmount: negotiationState.current_offer.amount,
-                counterPartyTokenAmount: negotiationState.current_offer.counterparty_amount
-            });
-
             elizaLogger.log(`Accepted deal with ${user.username}`);
-            const context = composeContext({
-                state,
-                template: this.acceptDealTemplate 
-            });
-
-            const response = await generateMessageResponse({
-                runtime: this.client.runtime,
-                context,
-                modelClass: ModelClass.MEDIUM,
-            });
-
-            const fullResponse = tradeMessage + response.text;
-
-            await this.sendReply(tweet, message, fullResponse, tweet.id);
             const last_interaction = negotiationState.last_interaction ?? new Date().toISOString();
 
             await this.saveNegotiationState(user.username, {
@@ -1125,11 +1119,24 @@ export class NegotiationHandler {
             });
 
             const evaluateOfferedTokensTemplate =
-            `# Task: Evaluate The Message and Determine if the User has Offered Tokens as Part of a Trade Proposal:
+            `# Task: Evaluate if the message contains a specific token amount offer
+            Message to analyze:
             {{proposalText}}
 
-            Respond with YES ONLY if the user has offered numeric amounts of tokens
-            Respond with NO for everything else (examples: the user is rejecting the trade or asking for a better offer or more information, the user is not offering any amount of tokens)
+            Rules for token amount detection:
+            1. Look for any numbers followed by or preceding token symbols/names
+            2. Numbers can be in various formats: "72 UFD", "72UFD", "UFD: 72"
+            3. The number must be a specific quantity (not percentages or general numbers)
+            4. Common token amount patterns:
+               - "X tokens"
+               - "X [symbol]"
+               - "offers X"
+               - "secures X"
+               - "sends X"
+               - "[symbol]: X"
+
+            Respond with YES if you find ANY specific token amount being offered/mentioned/secured/sent.
+            Respond with NO if no specific token amounts are found.
             ` + booleanFooter;
 
             const evaluationContext = composeContext({
@@ -1164,6 +1171,7 @@ export class NegotiationHandler {
         const previousOffer = JSON.parse(JSON.stringify(negotiationState.current_offer));
         const hasOfferedTokens = await this.evaluateHasOfferedTokens(tweet, message);
         if (hasOfferedTokens) {
+            elizaLogger.log("Has offered tokens");
             const { shouldAccept, counterpartyTokenAmount, ourTokenAmount } = await this.evaluateProposedDeal(tweet.text, user, tweet);
             negotiationState.current_offer.amount = ourTokenAmount;
             negotiationState.current_offer.counterparty_amount = counterpartyTokenAmount;
@@ -1172,18 +1180,27 @@ export class NegotiationHandler {
                 const wasAccepted = await this.acceptDeal(tweet, thread, message, user, negotiationState);
                 return wasAccepted;
             } else {
-                negotiationState.current_offer = previousOffer;
-                const success = await this.offerTradeDeal(tweet, thread, message, user, negotiationState);
-                if (!success) {
-                    elizaLogger.error("Failed to send counter-proposal in processNegotiationResponse");
-                    return false;
+                if (negotiationState.negotiation_count == negotiationState.max_negotiations) {
+                    elizaLogger.log("Max negotiations reached", tweet);
+                    const success = await this.endNegotiation(tweet, thread, message, user);
+                    if (!success) {
+                        elizaLogger.error("Failed to end negotiation properly");
+                        return false;
+                    }
+                    return true;
+                } else {
+                    negotiationState.current_offer = previousOffer;
+                    const success = await this.offerTradeDeal(tweet, thread, message, user, negotiationState);
+                    if (!success) {
+                        elizaLogger.error("Failed to send counter-proposal after rejection");
+                        return false;
+                    }
+                    elizaLogger.log(`Made counter-proposal to ${user.username}`);
                 }
-                elizaLogger.log(`Made counter-proposal to ${user.username}`);
-                return true;
             }
         } else {
+            elizaLogger.log("No tokens offered");
             const evaluation = await this.evaluateAcceptance(tweet, message, user);
-            console.log("Evaluated the counterparty's acceptance:", evaluation);
 
             if (evaluation) {
                 const wasAccepted = await this.acceptDeal(tweet, thread, message, user, negotiationState);
@@ -1295,32 +1312,7 @@ export class NegotiationHandler {
     }
 
     private async hasInitiatedTransfer(tweet: Tweet, message: Memory) {
-        const state = await this.client.runtime.composeState(message, {
-            twitterClient: this.client.twitterClient,
-            twitterUserName: settings.TWITTER_USERNAME,
-            proposalText: tweet.text 
-        });
-        
-        const hasInitiatedTransferTemplate =
-        `# Task: Evaluate The Message and Determine if the User has Initiated a Transfer:
-        {{proposalText}}
-
-        Respond with YES ONLY if the user has initiated/sent a transfer and provided a transaction ID (Tx ID)
-        Respond with NO for everything else 
-        ` + booleanFooter;
-
-        const evaluationContext = composeContext({
-            state,
-            template: hasInitiatedTransferTemplate 
-        });
-
-        const evaluation = await generateTrueOrFalse({
-            runtime: this.client.runtime,
-            context: evaluationContext,
-            modelClass: ModelClass.SMALL,
-        });
-
-        return evaluation;
+        return tweet.text.includes("Deal. I have sent");
     }
 
     private async initiateTransfer(tweet: Tweet, thread: Tweet[], message: Memory, user: WhitelistedUser) {

@@ -25,14 +25,11 @@ template: |
 
   Context:
       - You are offering to trade with {{username}}
-      - You are offering them {{ourTokenAmount}} ${{ourTokenSymbol}}, add $ before the token symbol without spaces. an example would be $TOKEN
-      - You are requesting {{counterPartyTokenAmount}} ${{counterPartyTokenSymbol}}, add $ before the token symbol without spaces. an example would be $TOKEN
+      - You are offering them {{ourTokenAmount}} ${{ourTokenSymbol}}
+      - You are requesting {{counterPartyTokenAmount}} ${{counterPartyTokenSymbol}}
       - Do NOT include any emojis
       - Do NOT @ mention the user
       - Do NOT mention "accept", "acceptance", or "accepting" in your response
       - Do NOT mention the offer being final in your response
       - vary how you construct your response
       - Do NOT mention any other tokens or cryptocurrencies in your response other than {{ourTokenSymbol}} and {{counterPartyTokenSymbol}}
-
-  # Task: Generate a post offering a trade deal in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}): 
-  {{currentPost}}
