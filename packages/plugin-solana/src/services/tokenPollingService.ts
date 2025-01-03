@@ -925,7 +925,41 @@ export class TokenPollingService {
           lastError = txError;
 
           if (txError instanceof Error && 
-            txError.message.includes('block height exceeded')) {
+              txError.message.includes('block height exceeded')) {
+            try {
+              const signatures = await this.connection.getSignaturesForAddress(
+                escrow,
+                { limit: 1 },
+                'confirmed'
+              );
+              
+              if (signatures.length > 0) {
+                const recentTx = await this.connection.getTransaction(signatures[0].signature, {
+                  maxSupportedTransactionVersion: 0
+                });
+                
+                if (recentTx && !recentTx.meta?.err) {
+                  return {
+                    initializer,
+                    taker,
+                    mintA,
+                    mintB,
+                    escrow,
+                    vaultA,
+                    vaultB,
+                    initializerAtaA,
+                    initializerAtaB,
+                    takerAtaA,
+                    takerAtaB,
+                    transactionId: signatures[0].signature
+                  };
+                }
+              }
+            } catch (verifyError) {
+              console.error("Error verifying transaction status:", verifyError);
+            }
+
+            // Only retry if we couldn't verify a successful transaction
             const newBlockhash = await this.connection.getLatestBlockhash();
             transaction.recentBlockhash = newBlockhash.blockhash;
             transaction.lastValidBlockHeight = newBlockhash.lastValidBlockHeight;
