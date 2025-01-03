@@ -146,8 +146,8 @@ export class TwitterInteractionClient extends ClientBase {
             this.handleTwitterInteractions();
             setTimeout(
                 handleTwitterInteractionsLoop,
-                (Math.floor(Math.random() * (5 - 2 + 1)) + 2) * 60 * 1000
-            ); // Random interval between 2-5 minutes
+                (Math.floor(Math.random() * (10 - 5 + 1)) + 5) * 60 * 1000
+            ); // Random interval between 5-10 minutes
         };
         handleTwitterInteractionsLoop();
 
@@ -155,8 +155,8 @@ export class TwitterInteractionClient extends ClientBase {
             this.handleHomeTimelineInteractions();
             setTimeout(
                 handleHomeTimelineInteractionsLoop,
-                (Math.floor(Math.random() * (5 - 2 + 1)) + 2) * 60 * 1000
-            ); // Random interval between 2-5 minutes
+                (Math.floor(Math.random() * (10 - 5 + 1)) + 5) * 60 * 1000
+            ); // Random interval between 5-10 minutes
         };
         handleHomeTimelineInteractionsLoop();
     }
