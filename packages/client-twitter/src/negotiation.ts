@@ -331,14 +331,14 @@ export class NegotiationHandler {
             const walletAddress = settings.WALLET_PUBLIC_KEY;
             const { maxOfferAmount } = await this.adjustOfferLimits(walletAddress, this.connection, user.tier - 1);
             
-            if (maxOfferAmount <= 0) {
-                elizaLogger.log("Insufficient balance for trading, skipping negotiation");
-                return false;
-            }
-
             let negotiationState = await this.loadNegotiationState(user.username);
             elizaLogger.log("Full negotiation state", negotiationState);
             elizaLogger.log("Negotiation status", negotiationState.negotiation_status);
+
+            if (maxOfferAmount <= 0 && (negotiationState.negotiation_status !== "waiting_for_escrow" && negotiationState.negotiation_status !== "initiated_escrow")) {
+                elizaLogger.log("Insufficient balance for trading, skipping negotiation");
+                return false;
+            }
 
             if (negotiationState.negotiation_status !== "not_started") {
                 if (tweet.conversationId === negotiationState.conversation_id) {
@@ -379,6 +379,8 @@ export class NegotiationHandler {
             } 
 
             if (negotiationState.negotiation_status === "not_started") {
+                const previousOffer = JSON.parse(JSON.stringify(negotiationState.current_offer));
+
                 const hasOfferedTokens = await this.evaluateHasOfferedTokens(tweet, message);
                 elizaLogger.log("Has offered tokens", hasOfferedTokens);
                 if (hasOfferedTokens) {
@@ -391,6 +393,7 @@ export class NegotiationHandler {
                         const wasAccepted = await this.acceptDeal(tweet, thread, message, user, negotiationState);
                         return wasAccepted; // if false then it failed somehow, retry
                     } else {
+                        negotiationState.current_offer = previousOffer;
                         const success = await this.offerTradeDeal(tweet, thread, message, user, negotiationState);
                         if (!success) {
                             elizaLogger.error("Failed to send counter-proposal");
@@ -400,9 +403,11 @@ export class NegotiationHandler {
                         return true;
                     }
                 } else {
+                    negotiationState.current_offer = previousOffer;
                     const shouldStartNegotiation = await this.shouldStartNegotiation(tweet);
                     elizaLogger.log("Should start negotiation", shouldStartNegotiation);
                     if (shouldStartNegotiation) {
+                        negotiationState.current_offer = previousOffer;
                         const success = await this.offerTradeDeal(tweet, thread, message, user, negotiationState);
                         if (!success) {
                             elizaLogger.error("Failed to send initial trade offer");
