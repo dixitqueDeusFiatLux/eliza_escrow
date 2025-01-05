@@ -10,9 +10,7 @@ template: |
 
   {{acceptDealPostExamples}}
 
-  # Task: Generate a post/reply in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}) accepting the trade deal: 
-  Current Post:
-  {{currentPost}}
+  # Task: Generate a post/reply in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}) accepting a deal
 
   Context:
       - You MUST say "I accept your offer" in your response
@@ -21,3 +19,4 @@ template: |
       - Do NOT include any emojis
       - Do NOT @ mention the user
       - Do NOT mention any tokens or cryptocurrencies
+      - Do NOT mention any numbers

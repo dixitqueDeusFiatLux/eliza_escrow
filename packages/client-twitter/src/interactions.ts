@@ -212,11 +212,13 @@ export class TwitterInteractionClient extends ClientBase {
                         elizaLogger.log("isNegotiation, saving trade request", tweet.id);
                         await this.saveTradeRequest(tweet, thread, message);
                     } else {
-                        await this.handleTweet({
-                            tweet,
-                            message,
-                            thread,
-                        });
+                        if (!this.negotiationHandler.isSolscan(tweet.text)) {
+                            await this.handleTweet({
+                                tweet,
+                                message,
+                                thread,
+                            });
+                        }
                     }
                     
                     this.lastCheckedHomeTimelineId = parseInt(tweet.id);
@@ -302,11 +304,13 @@ export class TwitterInteractionClient extends ClientBase {
                         }
                     }
                     if (!isNegotiation) {
-                        await this.handleTweet({
-                            tweet,
-                            message,
-                            thread,
-                        });
+                        if (!this.negotiationHandler.isSolscan(tweet.text)) {
+                            await this.handleTweet({
+                                tweet,
+                                message,
+                                thread,
+                            });
+                        }
                     }
 
                     // Update last checked ID

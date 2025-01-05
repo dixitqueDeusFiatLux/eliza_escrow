@@ -1428,4 +1428,8 @@ export class NegotiationHandler {
         this.counterpartyTiers = negotiationSettings.counterparty_tiers;
         this.blacklistedUsers = await this.loadBlacklist();
     }
+
+    public isSolscan(text: string): boolean {
+        return text.includes("solscan.io");
+    }
 }
