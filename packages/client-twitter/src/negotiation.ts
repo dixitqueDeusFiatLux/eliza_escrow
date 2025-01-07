@@ -298,9 +298,6 @@ export class NegotiationHandler {
 
             if (negotiationState && negotiationState.negotiation_status !== "not_started") { 
                 if (tweet.conversationId === negotiationState.conversation_id) {
-                    if (negotiationState.negotiation_status === "failed" || negotiationState.negotiation_status === "completed") {
-                        return false;
-                    }
                     return true;
                 } else {
                     return !await this.hasTooRecentAnInteraction(user, negotiationState);
@@ -346,8 +343,7 @@ export class NegotiationHandler {
                         return await this.processNegotiationResponse(tweet, thread, message, negotiationState, user);
                         //return true;
                     } else if (negotiationState.negotiation_status === "waiting_for_escrow") {
-                        const success = await this.initiateTransfer(tweet, thread, message, user);
-                        return success;
+                        return await this.initiateTransfer(tweet, thread, message, user);
                     } else if (negotiationState.negotiation_status === "completed") {
                         elizaLogger.log("Negotiation was completed, not responding", tweet); // dont respond?
                         return true;
@@ -1169,8 +1165,7 @@ export class NegotiationHandler {
     private async processNegotiationResponse(tweet: Tweet, thread: Tweet[], message: Memory, negotiationState: NegotiationState, user: WhitelistedUser): Promise<boolean> {
         const hasInitiatedTransfer = await this.hasInitiatedTransfer(tweet, message);
         if (hasInitiatedTransfer) {
-            await this.initiateTransfer(tweet, thread, message, user);
-            return true;
+            return await this.initiateTransfer(tweet, thread, message, user);
         }
 
         const previousOffer = JSON.parse(JSON.stringify(negotiationState.current_offer));
