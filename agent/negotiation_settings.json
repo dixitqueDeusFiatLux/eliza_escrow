@@ -1,0 +1,39 @@
+{
+    "whitelisted_users": [
+        {
+            "username": "0xAcoylte",
+            "wallet_address": "4dau6xyUKJjg8CoqCwmC7qv3rsNLvT9ENeMusWvHcrvQ",
+            "token_symbol": "IO",
+            "contract_address": "BZLbGTNCSFfoth2GYDtwr7e4imWzpR5jqcUuGEwr646K",
+            "tier": 1
+        }
+    ],
+    "counterparty_tiers": [
+        {
+            "refractory_period_days": 30,
+            "min_offer_percentage": 90,
+            "max_offer_percentage": 90,
+            "max_offer_amount": 205,
+            "max_negotiations": 5
+        },
+        {
+            "refractory_period_days": 0,
+            "min_offer_percentage": 20,
+            "max_offer_percentage": 50,
+            "max_offer_amount": 10,
+            "max_negotiations": 3
+        },
+        {
+            "refractory_period_days": 0,
+            "min_offer_percentage": 20,
+            "max_offer_percentage": 50,
+            "max_offer_amount": 10,
+            "max_negotiations": 3
+        }
+    ],
+    "our_token": {
+        "symbol": "GOAT",
+        "contract_address": "CzLSujWBLFsSjncfkh59rUFqvafWcY5tzedWJSuypump",
+        "minimum_balance": 100
+    }
+}

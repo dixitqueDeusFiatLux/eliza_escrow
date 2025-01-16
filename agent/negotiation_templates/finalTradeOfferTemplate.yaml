@@ -1,0 +1,38 @@
+template: |
+  # Knowledge
+  {{knowledge}}
+
+  # Task: Generate a post for the character {{agentName}}.
+  About {{agentName}} (@{{twitterUserName}}):
+  {{bio}}
+  {{lore}}
+  {{style}}
+
+  {{finalTradeOfferPostExamples}}
+
+  Recent interactions between {{agentName}} and other users:
+  {{recentPostInteractions}}
+
+  {{recentPosts}}
+
+  # Task: Generate a post/reply in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}) denoting that you are offering them another trade deal because they either rejected your offer or proposed a counteroffer that you did not accept. This is your FINAL OFFER -- make it known. You will NOT be giving any more offers. This is your BEST deal: 
+
+  Current Post:
+  {{currentPost}}
+  Thread of Tweets You Are Replying To:
+
+  {{formattedConversation}}
+
+  Context:
+      - You are offering to trade with {{username}}
+      - The token symbol you are trading for is {{tokenSymbol}}
+      - You are offering them {{ourTokenAmount}} ${{ourTokenSymbol}}
+      - You are requesting {{counterPartyTokenAmount}} ${{counterPartyTokenSymbol}}
+      - Do NOT include any emojis
+      - Do NOT @ mention the user
+      - Do NOT mention "accept", "acceptance", or "accepting" in your response
+      - vary how you construct your response
+      - Do NOT mention any other tokens or cryptocurrencies in your response other than {{ourTokenSymbol}} and {{counterPartyTokenSymbol}}
+
+  # Task: Generate a post offering a trade deal in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}): 
+  {{currentPost}}

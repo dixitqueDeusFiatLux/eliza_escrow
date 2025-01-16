@@ -719,6 +719,16 @@ export type Character = {
         discordMessageHandlerTemplate?: string;
         slackMessageHandlerTemplate?: string;
         slackShouldRespondTemplate?: string;
+        initialTradeOfferPostExamples?: string[];
+        nextTradeOfferPostExamples?: string[];
+        finalTradeOfferPostExamples?: string[];
+        acceptDealPostExamples?: string[];
+        escrowCompletePostExamples?: string[];
+        initiatedTransferPostExamples?: string[];
+        negotiationsFailedPostExamples?: string[];
+        nonWhitelistedUserPostExamples?: string[];
+        hasTooRecentAnInteractionPostExamples?: string[];
+        allianceIntents?: string[];
     };
 
     /** Character biography */
@@ -788,6 +798,10 @@ export type Character = {
             [key: string]: any[];
         };
         transcription?: TranscriptionProvider;
+        wallet?: {
+            max_retries?: number;
+            retry_delay?: number;
+        };
     };
 
     /** Optional client-specific config */

@@ -1,391 +1,404 @@
-import { IAgentRuntime, Memory, Provider, State } from "@elizaos/core";
+import { IAgentRuntime, Memory, Provider, State, settings, elizaLogger } from "@elizaos/core";
 import { Connection, PublicKey } from "@solana/web3.js";
+import { getAssociatedTokenAddress } from "@solana/spl-token";
 import BigNumber from "bignumber.js";
 import NodeCache from "node-cache";
-import { getWalletKey } from "../keypairUtils";
-
-// Provider configuration
-const PROVIDER_CONFIG = {
-    BIRDEYE_API: "https://public-api.birdeye.so",
-    MAX_RETRIES: 3,
-    RETRY_DELAY: 2000,
-    DEFAULT_RPC: "https://api.mainnet-beta.solana.com",
-    GRAPHQL_ENDPOINT: "https://graph.codex.io/graphql",
-    TOKEN_ADDRESSES: {
-        SOL: "So11111111111111111111111111111111111111112",
-        BTC: "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh",
-        ETH: "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
-    },
-};
+import { getSolBalance, getSplTokenHoldings } from './walletUtils';
+import { fetchTokenData, getAveragedPrice, getSolanaPrice } from './tokenUtils';
+import { TokenPollingService } from '../services/tokenPollingService';
 
 export interface Item {
-    name: string;
-    address: string;
-    symbol: string;
-    decimals: number;
-    balance: string;
-    uiAmount: string;
-    priceUsd: string;
-    valueUsd: string;
-    valueSol?: string;
+  name: string;
+  address: string;
+  symbol: string;
+  decimals: number;
+  balance: string;
+  uiAmount: string;
+  priceUsd: string;
+  valueUsd: string;
+  valueSol?: string;
 }
 
 interface WalletPortfolio {
-    totalUsd: string;
-    totalSol?: string;
-    items: Array<Item>;
+  totalUsd: string;
+  totalSol?: string;
+  items: Array<Item>;
 }
 
-interface _BirdEyePriceData {
-    data: {
-        [key: string]: {
-            price: number;
-            priceChange24h: number;
-        };
-    };
-}
-
-interface Prices {
-    solana: { usd: string };
-    bitcoin: { usd: string };
-    ethereum: { usd: string };
-}
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export class WalletProvider {
-    private cache: NodeCache;
+  private static instance: WalletProvider;
+  private cache: NodeCache;
+  private pollingService: TokenPollingService;
 
-    constructor(
-        private connection: Connection,
-        private walletPublicKey: PublicKey
-    ) {
-        this.cache = new NodeCache({ stdTTL: 300 }); // Cache TTL set to 5 minutes
+  constructor(
+    private connection: Connection,
+    private walletPublicKey: PublicKey
+  ) {
+    this.cache = new NodeCache({ stdTTL: 300 });
+    this.pollingService = TokenPollingService.getInstance(this.connection);
+    this.pollingService.startPolling();
+  }
+
+  public static getInstance(connection: Connection, walletPublicKey: PublicKey): WalletProvider {
+    if (!WalletProvider.instance) {
+      WalletProvider.instance = new WalletProvider(connection, walletPublicKey);
     }
+    return WalletProvider.instance;
+  }
 
-    private async fetchWithRetry(
-        runtime,
-        url: string,
-        options: RequestInit = {}
-    ): Promise<any> {
-        let lastError: Error;
+  async fetchPortfolioValue(runtime: IAgentRuntime): Promise<WalletPortfolio> {
+    try {
+      const cacheKey = `portfolio-${this.walletPublicKey}`;
+      const cachedValue = this.cache.get<WalletPortfolio>(cacheKey);
 
-        for (let i = 0; i < PROVIDER_CONFIG.MAX_RETRIES; i++) {
-            try {
-                const response = await fetch(url, {
-                    ...options,
-                    headers: {
-                        Accept: "application/json",
-                        "x-chain": "solana",
-                        "X-API-KEY":
-                            runtime.getSetting("BIRDEYE_API_KEY", "") || "",
-                        ...options.headers,
-                    },
-                });
+      if (cachedValue) {
+        return cachedValue;
+      }
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(
-                        `HTTP error! status: ${response.status}, message: ${errorText}`
-                    );
-                }
+      const solBalance = await getSolBalance(
+        this.connection,
+        this.walletPublicKey
+      );
 
-                const data = await response.json();
-                return data;
-            } catch (error) {
-                console.error(`Attempt ${i + 1} failed:`, error);
-                lastError = error;
-                if (i < PROVIDER_CONFIG.MAX_RETRIES - 1) {
-                    const delay = PROVIDER_CONFIG.RETRY_DELAY * Math.pow(2, i);
-                    await new Promise((resolve) => setTimeout(resolve, delay));
-                    continue;
-                }
-            }
-        }
+      const splTokens = await getSplTokenHoldings(
+        this.connection,
+        this.walletPublicKey
+      );
 
-        console.error(
-            "All attempts failed. Throwing the last error:",
-            lastError
-        );
-        throw lastError;
-    }
+      const holdings = [
+        {
+          mintAddress: settings.SOL_ADDRESS,
+          amount: solBalance,
+          decimals: 9,
+        },
+        ...splTokens,
+      ];
 
-    async fetchPortfolioValue(runtime): Promise<WalletPortfolio> {
-        try {
-            const cacheKey = `portfolio-${this.walletPublicKey.toBase58()}`;
-            const cachedValue = this.cache.get<WalletPortfolio>(cacheKey);
+      const prices: { [key: string]: { usd: string; sol: string } } = {};
+      const tokenMetadata: { [key: string]: { name: string; symbol: string } } = {};
 
-            if (cachedValue) {
-                console.log("Cache hit for fetchPortfolioValue");
-                return cachedValue;
-            }
-            console.log("Cache miss for fetchPortfolioValue");
+      const solPrice = await getSolanaPrice(runtime);
+      prices[settings.SOL_ADDRESS] = {
+        usd: solPrice.toString(),
+        sol: "1",
+      };
+      tokenMetadata[settings.SOL_ADDRESS] = {
+        name: "Solana",
+        symbol: "SOL",
+      };
 
-            const walletData = await this.fetchWithRetry(
-                runtime,
-                `${PROVIDER_CONFIG.BIRDEYE_API}/v1/wallet/token_list?wallet=${this.walletPublicKey.toBase58()}`
-            );
+      for (const token of holdings) {
+        // Skip SOL as we already handled it
+        if (token.mintAddress === settings.SOL_ADDRESS) continue;
 
-            if (!walletData?.success || !walletData?.data) {
-                console.error("No portfolio data available", walletData);
-                throw new Error("No portfolio data available");
-            }
-
-            const data = walletData.data;
-            const totalUsd = new BigNumber(data.totalUsd.toString());
-            const prices = await this.fetchPrices(runtime);
-            const solPriceInUSD = new BigNumber(prices.solana.usd.toString());
-
-            const items = data.items.map((item: any) => ({
-                ...item,
-                valueSol: new BigNumber(item.valueUsd || 0)
-                    .div(solPriceInUSD)
-                    .toFixed(6),
-                name: item.name || "Unknown",
-                symbol: item.symbol || "Unknown",
-                priceUsd: item.priceUsd || "0",
-                valueUsd: item.valueUsd || "0",
-            }));
-
-            const totalSol = totalUsd.div(solPriceInUSD);
-            const portfolio = {
-                totalUsd: totalUsd.toString(),
-                totalSol: totalSol.toFixed(6),
-                items: items.sort((a, b) =>
-                    new BigNumber(b.valueUsd)
-                        .minus(new BigNumber(a.valueUsd))
-                        .toNumber()
-                ),
-            };
-            this.cache.set(cacheKey, portfolio);
-            return portfolio;
-        } catch (error) {
-            console.error("Error fetching portfolio:", error);
-            throw error;
-        }
-    }
-
-    async fetchPortfolioValueCodex(runtime): Promise<WalletPortfolio> {
-        try {
-            const cacheKey = `portfolio-${this.walletPublicKey.toBase58()}`;
-            const cachedValue = await this.cache.get<WalletPortfolio>(cacheKey);
-
-            if (cachedValue) {
-                console.log("Cache hit for fetchPortfolioValue");
-                return cachedValue;
-            }
-            console.log("Cache miss for fetchPortfolioValue");
-
-            const query = `
-              query Balances($walletId: String!, $cursor: String) {
-                balances(input: { walletId: $walletId, cursor: $cursor }) {
-                  cursor
-                  items {
-                    walletId
-                    tokenId
-                    balance
-                    shiftedBalance
-                  }
-                }
-              }
-            `;
-
-            const variables = {
-                walletId: `${this.walletPublicKey.toBase58()}:${1399811149}`,
-                cursor: null,
-            };
-
-            const response = await fetch(PROVIDER_CONFIG.GRAPHQL_ENDPOINT, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization:
-                        runtime.getSetting("CODEX_API_KEY", "") || "",
-                },
-                body: JSON.stringify({
-                    query,
-                    variables,
-                }),
-            }).then((res) => res.json());
-
-            const data = response.data?.data?.balances?.items;
-
-            if (!data || data.length === 0) {
-                console.error("No portfolio data available", data);
-                throw new Error("No portfolio data available");
-            }
-
-            // Fetch token prices
-            const prices = await this.fetchPrices(runtime);
-            const solPriceInUSD = new BigNumber(prices.solana.usd.toString());
-
-            // Reformat items
-            const items: Item[] = data.map((item: any) => {
-                return {
-                    name: "Unknown",
-                    address: item.tokenId.split(":")[0],
-                    symbol: item.tokenId.split(":")[0],
-                    decimals: 6,
-                    balance: item.balance,
-                    uiAmount: item.shiftedBalance.toString(),
-                    priceUsd: "",
-                    valueUsd: "",
-                    valueSol: "",
-                };
-            });
-
-            // Calculate total portfolio value
-            const totalUsd = items.reduce(
-                (sum, item) => sum.plus(new BigNumber(item.valueUsd)),
-                new BigNumber(0)
-            );
-
-            const totalSol = totalUsd.div(solPriceInUSD);
-
-            const portfolio: WalletPortfolio = {
-                totalUsd: totalUsd.toFixed(6),
-                totalSol: totalSol.toFixed(6),
-                items: items.sort((a, b) =>
-                    new BigNumber(b.valueUsd)
-                        .minus(new BigNumber(a.valueUsd))
-                        .toNumber()
-                ),
-            };
-
-            // Cache the portfolio for future requests
-            await this.cache.set(cacheKey, portfolio, 60 * 1000); // Cache for 1 minute
-
-            return portfolio;
-        } catch (error) {
-            console.error("Error fetching portfolio:", error);
-            throw error;
-        }
-    }
-
-    async fetchPrices(runtime): Promise<Prices> {
-        try {
-            const cacheKey = "prices";
-            const cachedValue = this.cache.get<Prices>(cacheKey);
-
-            if (cachedValue) {
-                console.log("Cache hit for fetchPrices");
-                return cachedValue;
-            }
-            console.log("Cache miss for fetchPrices");
-
-            const { SOL, BTC, ETH } = PROVIDER_CONFIG.TOKEN_ADDRESSES;
-            const tokens = [SOL, BTC, ETH];
-            const prices: Prices = {
-                solana: { usd: "0" },
-                bitcoin: { usd: "0" },
-                ethereum: { usd: "0" },
-            };
-
-            for (const token of tokens) {
-                const response = await this.fetchWithRetry(
-                    runtime,
-                    `${PROVIDER_CONFIG.BIRDEYE_API}/defi/price?address=${token}`,
-                    {
-                        headers: {
-                            "x-chain": "solana",
-                        },
-                    }
-                );
-
-                if (response?.data?.value) {
-                    const price = response.data.value.toString();
-                    prices[
-                        token === SOL
-                            ? "solana"
-                            : token === BTC
-                              ? "bitcoin"
-                              : "ethereum"
-                    ].usd = price;
-                } else {
-                    console.warn(`No price data available for token: ${token}`);
-                }
-            }
-
-            this.cache.set(cacheKey, prices);
-            return prices;
-        } catch (error) {
-            console.error("Error fetching prices:", error);
-            throw error;
-        }
-    }
-
-    formatPortfolio(
-        runtime,
-        portfolio: WalletPortfolio,
-        prices: Prices
-    ): string {
-        let output = `${runtime.character.description}\n`;
-        output += `Wallet Address: ${this.walletPublicKey.toBase58()}\n\n`;
-
-        const totalUsdFormatted = new BigNumber(portfolio.totalUsd).toFixed(2);
-        const totalSolFormatted = portfolio.totalSol;
-
-        output += `Total Value: $${totalUsdFormatted} (${totalSolFormatted} SOL)\n\n`;
-        output += "Token Balances:\n";
-
-        const nonZeroItems = portfolio.items.filter((item) =>
-            new BigNumber(item.uiAmount).isGreaterThan(0)
-        );
-
-        if (nonZeroItems.length === 0) {
-            output += "No tokens found with non-zero balance\n";
+        const tokenData = await fetchTokenData(token.mintAddress, runtime);
+        if (tokenData) {
+          const averagedPrice = getAveragedPrice(tokenData);
+          if (!averagedPrice) {
+            elizaLogger.error(`No averaged price found for token ${token.mintAddress}`);
+            continue;
+          }
+          prices[token.mintAddress] = {
+            usd: averagedPrice.averagePriceUsd,
+            sol: averagedPrice.averagePriceSol,
+          };
+          tokenMetadata[token.mintAddress] = {
+            name: averagedPrice.tokenName,
+            symbol: averagedPrice.tokenSymbol,
+          };
         } else {
-            for (const item of nonZeroItems) {
-                const valueUsd = new BigNumber(item.valueUsd).toFixed(2);
-                output += `${item.name} (${item.symbol}): ${new BigNumber(
-                    item.uiAmount
-                ).toFixed(6)} ($${valueUsd} | ${item.valueSol} SOL)\n`;
-            }
+          elizaLogger.error(
+            `No price data found for token ${token.mintAddress}`
+          );
+          prices[token.mintAddress] = {
+            usd: "0",
+            sol: "0",
+          };
+          tokenMetadata[token.mintAddress] = {
+            name: "Unknown",
+            symbol: "Unknown",
+          };
         }
 
-        output += "\nMarket Prices:\n";
-        output += `SOL: $${new BigNumber(prices.solana.usd).toFixed(2)}\n`;
-        output += `BTC: $${new BigNumber(prices.bitcoin.usd).toFixed(2)}\n`;
-        output += `ETH: $${new BigNumber(prices.ethereum.usd).toFixed(2)}\n`;
+        await sleep(2000); // DexScreener rate limit is 60 requests per minute
+      }
 
-        return output;
-    }
+      const items: Item[] = [];
+      let totalUsd = new BigNumber(0);
 
-    async getFormattedPortfolio(runtime): Promise<string> {
-        try {
-            const [portfolio, prices] = await Promise.all([
-                this.fetchPortfolioValue(runtime),
-                this.fetchPrices(runtime),
-            ]);
+      for (const token of holdings) {
+        if (prices[token.mintAddress]) {
+          const priceInfo = prices[token.mintAddress];
+          const amount = new BigNumber(token.amount.toString());
+          const priceUsd = new BigNumber(priceInfo.usd || "0");
 
-            return this.formatPortfolio(runtime, portfolio, prices);
-        } catch (error) {
-            console.error("Error generating portfolio report:", error);
-            return "Unable to fetch wallet information. Please try again later.";
+          // Skip if price is NaN or invalid
+          if (priceUsd.isNaN() || !priceUsd.isFinite()) {
+            continue;
+          }
+
+          const valueUsd = amount.multipliedBy(priceUsd);
+          if (valueUsd.isFinite()) {
+            totalUsd = totalUsd.plus(valueUsd);
+          }
+
+          let valueSol = new BigNumber(0);
+          if (new BigNumber(solPrice).gt(0)) {
+            valueSol = valueUsd.dividedBy(solPrice);
+          }
+
+          const metadata = tokenMetadata[token.mintAddress] || {
+            name: "Unknown",
+            symbol: "Unknown",
+          };
+
+          items.push({
+            name: metadata.name,
+            address: token.mintAddress,
+            symbol: metadata.symbol,
+            decimals: token.decimals,
+            balance: amount.toFixed(token.decimals),
+            uiAmount: amount.toFixed(token.decimals),
+            priceUsd: priceUsd.isFinite() ? priceUsd.toFixed(2) : "0.00",
+            valueUsd: valueUsd.isFinite() ? valueUsd.toFixed(2) : "0.00",
+            valueSol: valueSol.isFinite() ? valueSol.toFixed(6) : "0.000000",
+          });
         }
+      }
+
+      const totalSol = new BigNumber(solPrice).gt(0) ? totalUsd.dividedBy(solPrice) : new BigNumber(0);
+
+      const portfolio = {
+        totalUsd: totalUsd.isFinite() ? totalUsd.toFixed(2) : "0.00",
+        totalSol: totalSol.isFinite() ? totalSol.toFixed(6) : "0.000000",
+        items: items.sort((a, b) =>
+          new BigNumber(b.valueUsd || 0)
+            .minus(new BigNumber(a.valueUsd || 0))
+            .toNumber()
+        ),
+      };
+
+      this.cache.set(cacheKey, portfolio);
+      return portfolio;
+    } catch (error) {
+      elizaLogger.error("Error fetching portfolio:", {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        error: JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+      });
+      throw error;
     }
+  }
+
+  async getFormattedPortfolio(runtime): Promise<string> {
+    try {
+      const walletAddress = this.walletPublicKey.toBase58();
+
+      const formattedCacheKey = `formatted-portfolio-${walletAddress}`;
+      const cachedFormatted = this.cache.get<string>(formattedCacheKey);
+
+      if (cachedFormatted) {
+        return cachedFormatted;
+      }
+
+      const portfolio = await this.fetchPortfolioValue(runtime);
+
+      if (!portfolio) {
+        elizaLogger.error("Missing data after fetch:", {
+          message: "Failed to fetch required portfolio data",
+          portfolio,
+          error: JSON.stringify({ portfolio }, null, 2)
+        });
+        throw new Error("Failed to fetch required portfolio data");
+      }
+
+      const formattedPortfolio = this.formatPortfolio(runtime, portfolio);
+
+      this.cache.set(formattedCacheKey, formattedPortfolio);
+      return formattedPortfolio;
+    } catch (error) {
+      elizaLogger.error("Error generating portfolio report:", {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        error: JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+      });
+      return "Unable to fetch wallet information. Please try again later.";
+    }
+  }
+
+  formatPortfolio(
+    runtime,
+    portfolio: WalletPortfolio,
+  ): string {
+    let output = "";
+    output += `Wallet Address: ${this.walletPublicKey.toBase58()}\n\n`;
+
+    const totalUsdFormatted = new BigNumber(portfolio.totalUsd).toFixed(2);
+    const totalSolFormatted = portfolio.totalSol;
+
+    output += `Total Value: $${totalUsdFormatted} (${totalSolFormatted} SOL)\n\n`;
+    output += "Token Balances:\n";
+
+    const filteredItems = portfolio.items.filter((item) =>
+      new BigNumber(item.uiAmount).isGreaterThan(0)
+    );
+
+    if (filteredItems.length === 0) {
+      output += "No tokens found with non-zero balance\n";
+    } else {
+      for (const item of filteredItems) {
+        const valueUsd = new BigNumber(item.valueUsd).toFixed(2);
+        output += `${item.name || "Unknown"} (${item.symbol || "Unknown"}): ${new BigNumber(
+          item.uiAmount
+        ).toFixed(6)} ($${valueUsd} | ${item.valueSol} SOL)\n`;
+      }
+    }
+
+    output += "\nMarket Prices:\n";
+    for (const item of portfolio.items) {
+      output += `${item.symbol}: $${new BigNumber(item.priceUsd).toFixed(8)}\n`;
+    }
+    return output;
+  }
+
+  async startTokenPolling(
+    mintAddress: string,
+    expectedAmount: string,
+    accounts: {
+      escrow: string;
+      initializer: string;
+      taker: string;
+      mintA: string;
+      initializerAtaA: string;
+      initializerAtaB: string;
+      takerAtaA: string;
+      takerAtaB: string;
+      vaultA: string;
+      initializerSecretKey: number[];
+      tweet: {
+        id: string;
+        text: string;
+        username: string;
+        timestamp: number;
+        conversationId: string;
+      };
+    },
+    threshold: number = 0.95
+  ): Promise<void> {
+    const associatedTokenAccount = await getAssociatedTokenAddress(
+      new PublicKey(mintAddress),
+      this.walletPublicKey
+    );
+
+    const pollingService = TokenPollingService.getInstance(this.connection);
+    pollingService.addPollingTask(
+      associatedTokenAccount.toString(),
+      mintAddress,
+      expectedAmount,
+      accounts,
+      threshold
+    );
+  }
+
+  async stopTokenPolling(tweetId: string): Promise<void> {
+    const pollingService = TokenPollingService.getInstance(this.connection);
+    pollingService.removePollingTask(tweetId);
+  }
+
+  async fetchPrices(runtime): Promise<{ [key: string]: { usd: string } }> {
+    try {
+      const cacheKey = "prices";
+      const cachedValue = this.cache.get<{ [key: string]: { usd: string } }>(cacheKey);
+
+      if (cachedValue) {
+        return cachedValue;
+      }
+
+      const portfolio = await this.fetchPortfolioValue(runtime);
+      const prices: { [key: string]: { usd: string } } = {};
+
+      // Convert portfolio items to price format
+      for (const item of portfolio.items) {
+        prices[item.symbol.toLowerCase()] = {
+          usd: item.priceUsd
+        };
+      }
+
+      // Ensure we have solana price
+      if (!prices.solana && portfolio.items.find(item => item.address === settings.SOL_ADDRESS)) {
+        const solItem = portfolio.items.find(item => item.address === settings.SOL_ADDRESS);
+        prices.solana = {
+          usd: solItem!.priceUsd
+        };
+      }
+
+      this.cache.set(cacheKey, prices);
+      return prices;
+    } catch (error) {
+      elizaLogger.error("Error fetching prices:", {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        error: JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+      });
+      throw error;
+    }
+  }
 }
 
 const walletProvider: Provider = {
-    get: async (
-        runtime: IAgentRuntime,
-        _message: Memory,
-        _state?: State
-    ): Promise<string | null> => {
-        try {
-            const { publicKey } = await getWalletKey(runtime, false);
+  get: async (
+    runtime: IAgentRuntime,
+    _message: Memory,
+    _state?: State
+  ): Promise<string> => {
+    try {
+      const walletPublicKeySetting = runtime.getSetting("WALLET_PUBLIC_KEY");
+      if (!walletPublicKeySetting) {
+        elizaLogger.error(
+          "Wallet public key is not configured in settings"
+        );
+        return "";
+      }
 
-            const connection = new Connection(
-                runtime.getSetting("RPC_URL") || PROVIDER_CONFIG.DEFAULT_RPC
-            );
+      if (
+        typeof walletPublicKeySetting !== "string" ||
+        walletPublicKeySetting.trim() === ""
+      ) {
+        elizaLogger.error("Invalid wallet public key format");
+        return "";
+      }
 
-            const provider = new WalletProvider(connection, publicKey);
+      let publicKey: PublicKey;
+      try {
+        publicKey = new PublicKey(walletPublicKeySetting);
+      } catch (error) {
+        elizaLogger.error("Error creating PublicKey:", {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : undefined,
+          error: JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+        });
+        return "";
+      }
 
-            return await provider.getFormattedPortfolio(runtime);
-        } catch (error) {
-            console.error("Error in wallet provider:", error);
-            return null;
-        }
-    },
+      const connection = new Connection(settings.RPC_URL, "confirmed");
+      const provider = new WalletProvider(connection, publicKey);
+
+      const portfolio = await provider.getFormattedPortfolio(runtime);
+
+      return portfolio;
+    } catch (error) {
+      elizaLogger.error("Error in wallet provider:", {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+        error: JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+      });
+      return `Failed to fetch wallet information: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`;
+    }
+  },
 };
 
-// Module exports
 export { walletProvider };
