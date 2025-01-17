@@ -5,14 +5,13 @@ import { Content, Memory, ModelClass, booleanFooter, composeContext, elizaLogger
 import { generateMessageResponse } from "@elizaos/core";
 import { TwitterInteractionClient } from "./interactions";
 import { sendTweet } from "./utils";
-import { fetchTokenData, getAveragedPrice } from "@elizaos/plugin-solana";
-import { getSplTokenHoldings } from '@elizaos/plugin-solana';
+import { fetchTokenData, getAveragedPrice, getSplTokenHoldings, TokenPollingService, PollingTask } from "@elizaos/plugin-solana";
 import yaml from 'js-yaml';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { TokenPollingService, PollingTask } from "@elizaos/plugin-solana";
 import { Keypair } from "@solana/web3.js";
 import { promises as fsPromises } from 'fs';
 import bs58 from "bs58";
+import { ClientBase } from './base';
 
 const __dirname = path.resolve();
 
@@ -92,7 +91,7 @@ export class NegotiationHandler {
     private blacklistedUsers: string[] = [];
     private connection: Connection;
 
-    constructor(private client: TwitterInteractionClient) {
+    constructor(private client: ClientBase) {
         const negotiationSettings = this.loadNegotiationSettings();
         this.blacklistPath = path.resolve(__dirname, 'engagement', 'blacklisted_interactions.yaml');
         this.whitelistedUsers = negotiationSettings.whitelisted_users;
@@ -195,12 +194,13 @@ export class NegotiationHandler {
         }
 
         const counterpartyTierSettings = await this.getCounterpartyTierSettings(user);
-
         const refractoryPeriodDays = counterpartyTierSettings.refractory_period_days;
 
+        const refractoryPeriodMs = refractoryPeriodDays * 24 * 60 * 60 * 1000;
+
         const lastInteraction = new Date(negotiationState.last_interaction);
-        const refractoryPeriodAgo = new Date();
-        refractoryPeriodAgo.setDate(refractoryPeriodAgo.getDate() - refractoryPeriodDays);
+        const now = new Date();
+        const refractoryPeriodAgo = new Date(now.getTime() - refractoryPeriodMs);
 
         return lastInteraction > refractoryPeriodAgo;
     }
@@ -210,7 +210,7 @@ export class NegotiationHandler {
             const formattedConversation = this.getFormattedConversation(thread);
 
             const state = await this.client.runtime.composeState(message, {
-                nonWhitelistedUserPostExamples: this.client.runtime.character.templates.nonWhitelistedUserPostExamples,
+                nonWhitelistedUserPostExamples: this.client.runtime.character.nonWhitelistedUserPostExamples,
                 twitterClient: this.client.twitterClient,
                 twitterUserName: settings.TWITTER_USERNAME,
                 currentPost: tweet.text,
@@ -437,7 +437,7 @@ export class NegotiationHandler {
                 twitterClient: this.client.twitterClient,
                 twitterUserName: settings.TWITTER_USERNAME,
                 currentPost: tweet.text,
-                allianceIntents: this.client.runtime.character.templates.allianceIntents
+                allianceIntents: this.client.runtime.character.allianceIntents
             });
 
             const evaluationContext = composeContext({
@@ -715,9 +715,9 @@ export class NegotiationHandler {
 
             const negotiationSettings = this.loadNegotiationSettings();
             const state = await this.client.runtime.composeState(message, {
-                initialTradeOfferPostExamples: this.client.runtime.character.templates.initialTradeOfferPostExamples,
-                nextTradeOfferPostExamples: this.client.runtime.character.templates.nextTradeOfferPostExamples,
-                finalTradeOfferPostExamples: this.client.runtime.character.templates.finalTradeOfferPostExamples,
+                initialTradeOfferPostExamples: this.client.runtime.character.initialTradeOfferPostExamples,
+                nextTradeOfferPostExamples: this.client.runtime.character.nextTradeOfferPostExamples,
+                finalTradeOfferPostExamples: this.client.runtime.character.finalTradeOfferPostExamples,
                 twitterClient: this.client.twitterClient,
                 twitterUserName: settings.TWITTER_USERNAME,
                 currentPost: tweet.text,
@@ -991,7 +991,7 @@ export class NegotiationHandler {
             }
 
             const state = await this.client.runtime.composeState(message, {
-                acceptDealPostExamples: this.client.runtime.character.templates.acceptDealPostExamples,
+                acceptDealPostExamples: this.client.runtime.character.acceptDealPostExamples,
                 twitterClient: this.client.twitterClient,
                 twitterUserName: settings.TWITTER_USERNAME,
                 currentPost: tweet.text,
@@ -1043,7 +1043,7 @@ export class NegotiationHandler {
             const formattedConversation = this.getFormattedConversation(thread);
 
             const state = await this.client.runtime.composeState(message, {
-                negotiationFailedPostExamples: this.client.runtime.character.templates.negotiationsFailedPostExamples,
+                negotiationFailedPostExamples: this.client.runtime.character.negotiationsFailedPostExamples,
                 twitterClient: this.client.twitterClient,
                 twitterUserName: settings.TWITTER_USERNAME,
                 currentPost: tweet.text,
@@ -1223,7 +1223,7 @@ export class NegotiationHandler {
         const tradeMessage = `https://solscan.io/account/${task.escrow}\n\n`
 
         const state = await this.client.runtime.composeState(task.message as Memory, {
-            escrowCompletePostExamples: this.client.runtime.character.templates.escrowCompletePostExamples,
+            escrowCompletePostExamples: this.client.runtime.character.escrowCompletePostExamples,
             twitterClient: this.client.twitterClient,
             twitterUserName: settings.TWITTER_USERNAME,
             currentPost: task.tweet.text,
@@ -1281,15 +1281,16 @@ export class NegotiationHandler {
     // Can pass into post.ts etc
     private async getFormattedAllyList(): Promise<string> {
         const memories = await this.client.runtime.messageManager.getMemoriesByRoomIds({
-            roomIds: [stringToUuid("ally_room")],
-            agentId: this.client.runtime.agentId,
+            roomIds: [stringToUuid("ally_room")]
         });
 
-        const allyList = memories.map(memory => {
-            const allyInfo = JSON.parse(memory.content.text);
-            const trades = allyInfo.trades.map(trade => `Date: ${trade.date}, Details: ${trade.tradeDetails}`).join("\n  ");
-            return `Username: ${allyInfo.username}\n  Trades:\n  ${trades}`;
-        });
+        const allyList = memories
+            .filter(memory => memory.agentId === this.client.runtime.agentId)
+            .map(memory => {
+                const allyInfo = JSON.parse(memory.content.text);
+                const trades = allyInfo.trades.map(trade => `Date: ${trade.date}, Details: ${trade.tradeDetails}`).join("\n  ");
+                return `Username: ${allyInfo.username}\n  Trades:\n  ${trades}`;
+            });
 
         return allyList.join("\n\n");
     }
@@ -1338,7 +1339,7 @@ export class NegotiationHandler {
                 const formattedConversation = this.getFormattedConversation(thread);
 
                 const state = await this.client.runtime.composeState(message, {
-                    initiatedTransferPostExamples: this.client.runtime.character.templates.initiatedTransferPostExamples,
+                    initiatedTransferPostExamples: this.client.runtime.character.initiatedTransferPostExamples,
                     twitterClient: this.client.twitterClient,
                     twitterUserName: settings.TWITTER_USERNAME,
                     currentPost: tweet.text,

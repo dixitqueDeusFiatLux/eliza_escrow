@@ -148,7 +148,7 @@ export async function fetchTokenData(mintAddress: string, runtime: IAgentRuntime
 
 export function getAveragedPrice(data: TokenData) {
   if (!data || !data.pairs || data.pairs.length === 0) {
-    elizaLogger.error("No token pairs found.");
+    elizaLogger.warn("No token pairs found.");
     return null;
   }
 

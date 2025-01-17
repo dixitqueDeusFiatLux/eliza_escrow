@@ -263,7 +263,7 @@ export class ClientBase extends EventEmitter {
             .map((tweet) => {
                 //console.log("tweet is", tweet);
                 const obj = {
-                    id: tweet.id,
+                    id: tweet.rest_id, // id doesnt work!!!!!
                     name:
                         tweet.name ?? tweet?.user_results?.result?.legacy.name,
                     username:

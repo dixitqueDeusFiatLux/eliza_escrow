@@ -17,6 +17,12 @@ import {
 } from "@elizaos/core";
 import { ClientBase } from "./base";
 import { buildConversationThread, sendTweet, wait } from "./utils.ts";
+import { NegotiationHandler } from "./negotiation";
+import path from "path";
+import fs from "fs";
+import { promises as fsPromises } from 'fs';
+
+const __dirname = path.resolve();
 
 export const twitterMessageHandlerTemplate =
     `
@@ -90,10 +96,42 @@ Thread of Tweets You Are Replying To:
 export class TwitterInteractionClient {
     client: ClientBase;
     runtime: IAgentRuntime;
+
+    private negotiationHandler: NegotiationHandler;
+
+    private lastCheckedHomeTimelineId: number | null = null;
+    private homeTimelineCacheFilePath = __dirname + "/tweetcache/latest_home_timeline_id.txt";
+    private tradeRequestsPath: string;
+
     constructor(client: ClientBase, runtime: IAgentRuntime) {
         this.client = client;
         this.runtime = runtime;
+        this.tradeRequestsPath = path.resolve(__dirname, 'engagement', 'trade_requests');
+        this.negotiationHandler = new NegotiationHandler(this.client);
+
+        try {
+            if (fs.existsSync(this.homeTimelineCacheFilePath)) {
+                const data = fs.readFileSync(this.homeTimelineCacheFilePath, "utf-8");
+                this.lastCheckedHomeTimelineId = parseInt(data.trim());
+            }
+        } catch (error) {
+            console.error("Error loading latest home timeline tweet ID:", error);
+        }
+
+        const dir = path.dirname(this.homeTimelineCacheFilePath);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+
+        const engagementDir = path.resolve(__dirname, 'engagement');
+        if (!fs.existsSync(engagementDir)) {
+            fs.mkdirSync(engagementDir, { recursive: true });
+        }
+        if (!fs.existsSync(this.tradeRequestsPath)) {
+            fs.mkdirSync(this.tradeRequestsPath, { recursive: true });
+        }
     }
+
 
     async start() {
         const handleTwitterInteractionsLoop = () => {
@@ -105,6 +143,16 @@ export class TwitterInteractionClient {
             );
         };
         handleTwitterInteractionsLoop();
+
+        const handleHomeTimelineInteractionsLoop = () => {
+            this.handleHomeTimelineInteractions();
+            setTimeout(
+                handleHomeTimelineInteractionsLoop,
+                // Defaults to 2 minutes
+                this.client.twitterConfig.TWITTER_POLL_INTERVAL * 1000
+            );
+        };
+        handleHomeTimelineInteractionsLoop();
     }
 
     async handleTwitterInteractions() {
@@ -232,6 +280,7 @@ export class TwitterInteractionClient {
                     );
 
                     // Check if we've already processed this tweet
+                    /*
                     const existingResponse =
                         await this.runtime.messageManager.getMemoryById(
                             tweetId
@@ -243,6 +292,7 @@ export class TwitterInteractionClient {
                         );
                         continue;
                     }
+                    */
                     elizaLogger.log("New Tweet found", tweet.permanentUrl);
 
                     const roomId = stringToUuid(
@@ -274,11 +324,23 @@ export class TwitterInteractionClient {
                         roomId,
                     };
 
-                    await this.handleTweet({
-                        tweet,
-                        message,
-                        thread,
-                    });
+                    let isNegotiation = false;
+                    if (tweet.mentions.some(mention => mention.username === this.runtime.getSetting("TWITTER_USERNAME"))) {
+                        isNegotiation = await this.negotiationHandler.isNegotiation(tweet, message);
+                        if (isNegotiation) {
+                            elizaLogger.log("isNegotiation, saving trade request", tweet.id);
+                            await this.saveTradeRequest(tweet, thread, message);
+                        }
+                    }
+                    if (!isNegotiation) {
+                        await this.handleTweet({
+                            tweet,
+                            message,
+                            thread,
+                        });
+                    }
+
+                    console.log("Is negotiation", isNegotiation);
 
                     // Update the last checked tweet ID after processing each tweet
                     this.client.lastCheckedTweetId = BigInt(tweet.id);
@@ -288,9 +350,113 @@ export class TwitterInteractionClient {
             // Save the latest checked tweet ID to the file
             await this.client.cacheLatestCheckedTweetId();
 
+            const tradeFiles = await fsPromises.readdir(this.tradeRequestsPath);
+            for (const file of tradeFiles) {
+                if (file.endsWith('.json')) {
+                    const filePath = path.join(this.tradeRequestsPath, file);
+                    const content = await fsPromises.readFile(filePath, 'utf-8');
+                    const { tweet, thread, message } = JSON.parse(content);
+
+                    const wasHandled = await this.negotiationHandler.handleNegotiation(tweet, thread, message);
+                    elizaLogger.log("wasHandled", wasHandled, tweet.id);
+                    if (wasHandled) {
+                        await fsPromises.unlink(filePath);
+                    }
+                }
+            }
+
             elizaLogger.log("Finished checking Twitter interactions");
         } catch (error) {
             elizaLogger.error("Error handling Twitter interactions:", error);
+        }
+    }
+
+    async handleHomeTimelineInteractions() {
+        elizaLogger.log("Checking home timeline interactions");
+        try {
+            // Fetch home timeline tweets
+            const timelineTweets = await this.client.fetchHomeTimeline(20, true);
+
+            // de-duplicate tweets with a set
+            const uniqueTweets = [...new Set(timelineTweets)];
+
+            // Sort tweets by ID in ascending order and filter out our own tweets
+            uniqueTweets
+                .sort((a, b) => a.id.localeCompare(b.id))
+                .filter((tweet) => tweet.userId !== this.client.profile.id);
+
+            // for each tweet, handle it if it's new
+            for (const tweet of uniqueTweets) {
+                if (
+                    !this.lastCheckedHomeTimelineId ||
+                    parseInt(tweet.id) > this.lastCheckedHomeTimelineId
+                ) {
+                    const conversationId =
+                        tweet.conversationId + "-" + this.runtime.agentId;
+
+                    const roomId = stringToUuid(conversationId);
+
+                    const userIdUUID = stringToUuid(tweet.userId as string);
+
+                    await this.runtime.ensureConnection(
+                        userIdUUID,
+                        roomId,
+                        tweet.username,
+                        tweet.name,
+                        "twitter"
+                    );
+
+                    const thread = await buildConversationThread(tweet, this.client);
+
+                    const message = {
+                        content: { text: tweet.text },
+                        agentId: this.runtime.agentId,
+                        userId: userIdUUID,
+                        roomId,
+                    };
+
+                    // Check if it's a negotiation before handling
+                    const isNegotiation = await this.negotiationHandler.isNegotiation(tweet, message);
+                    if (tweet.username.toLowerCase() !== this.client.twitterConfig.TWITTER_USERNAME.toLowerCase()) {
+                        if (isNegotiation) {
+                            elizaLogger.log("isNegotiation, saving trade request", tweet.id);
+                            await this.saveTradeRequest(tweet, thread, message);
+                        } else {
+                            await this.handleTweet({
+                                tweet,
+                                message,
+                                thread,
+                            });
+                        }
+                    }
+
+                    this.lastCheckedHomeTimelineId = parseInt(tweet.id);
+
+                    try {
+                        if (this.lastCheckedHomeTimelineId) {
+                            fs.writeFileSync(
+                                this.homeTimelineCacheFilePath,
+                                this.lastCheckedHomeTimelineId.toString(),
+                                "utf-8"
+                            );
+                        }
+                    } catch (error) {
+                        elizaLogger.error(
+                            "Error saving latest checked home timeline tweet ID to file:",
+                            error
+                        );
+                    }
+                }
+            }
+
+            elizaLogger.log("Finished checking Twitter home timeline interactions");
+        } catch (error) {
+            elizaLogger.error("Error handling home timeline interactions", {
+                message: error instanceof Error ? error.message : 'Unknown error',
+                stack: error instanceof Error ? error.stack : undefined,
+                error: JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+            });
+
         }
     }
 
@@ -611,5 +777,37 @@ export class TwitterInteractionClient {
         });
 
         return thread;
+    }
+
+    private async saveTradeRequest(tweet: Tweet, thread: Tweet[], message: Memory) {
+        const cleanTweet = {
+            id: tweet.id,
+            text: tweet.text,
+            username: tweet.username,
+            timestamp: tweet.timestamp,
+            conversationId: tweet.conversationId,
+            userId: tweet.userId,
+            mentions: tweet.mentions,
+            permanentUrl: tweet.permanentUrl
+        };
+
+        const cleanThread = thread.map(t => ({
+            id: t.id,
+            text: t.text,
+            username: t.username,
+            timestamp: t.timestamp,
+            conversationId: t.conversationId,
+            userId: t.userId,
+            mentions: t.mentions,
+            permanentUrl: t.permanentUrl
+        }));
+
+        const tradeRequest = {
+            tweet: cleanTweet,
+            thread: cleanThread,
+            message
+        };
+        const filePath = path.join(this.tradeRequestsPath, `${tweet.id}.json`);
+        await fsPromises.writeFile(filePath, JSON.stringify(tradeRequest, null, 2));
     }
 }

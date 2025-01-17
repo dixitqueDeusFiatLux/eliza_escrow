@@ -97,7 +97,7 @@ export class WalletProvider {
         if (tokenData) {
           const averagedPrice = getAveragedPrice(tokenData);
           if (!averagedPrice) {
-            elizaLogger.error(`No averaged price found for token ${token.mintAddress}`);
+            elizaLogger.warn(`No averaged price found for token ${token.mintAddress}`);
             continue;
           }
           prices[token.mintAddress] = {

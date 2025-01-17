@@ -309,58 +309,7 @@ export async function generateText({
 
         switch (provider) {
             // OPENAI & LLAMACLOUD shared same structure.
-            case ModelProviderName.OPENAI: {
-                elizaLogger.debug("Initializing OpenAI model.");
-                const openai = createOpenAI({
-                    apiKey,
-                    baseURL: endpoint,
-                    fetch: runtime.fetch,
-                });
-
-                if (model === "o1-preview") {
-                    const { text: openaiResponse } = await aiGenerateText({
-                        model: openai.languageModel(model),
-                        prompt: context,
-                        system:
-                            runtime.character.system ??
-                            settings.SYSTEM_PROMPT ??
-                            undefined,
-                        tools: tools,
-                        onStepFinish: onStepFinish,
-                        maxSteps: maxSteps,
-                        temperature: temperature,
-                        maxCompletionTokens: max_response_length,
-                        frequencyPenalty: frequency_penalty,
-                        presencePenalty: presence_penalty,
-                        experimental_telemetry: experimental_telemetry,
-                    });
-
-                    response = openaiResponse;
-                    elizaLogger.debug("Received response from OpenAI model.");
-                    break;
-                } else {
-                    const { text: openaiResponse } = await aiGenerateText({
-                        model: openai.languageModel(model),
-                        prompt: context,
-                        system:
-                            runtime.character.system ??
-                            settings.SYSTEM_PROMPT ??
-                            undefined,
-                        tools: tools,
-                        onStepFinish: onStepFinish,
-                        maxSteps: maxSteps,
-                        temperature: temperature,
-                        maxTokens: max_response_length,
-                        frequencyPenalty: frequency_penalty,
-                        presencePenalty: presence_penalty,
-                        experimental_telemetry: experimental_telemetry,
-                    });
-
-                    response = openaiResponse;
-                    elizaLogger.debug("Received response from OpenAI model.");
-                    break;
-                }
-            }
+            case ModelProviderName.OPENAI:
             case ModelProviderName.ALI_BAILIAN:
             case ModelProviderName.VOLENGINE:
             case ModelProviderName.LLAMACLOUD:

@@ -902,6 +902,75 @@ Text: ${attachment.text}
             .slice(0, 50)
             .join("\n");
 
+        const formattedInitialTradeOfferPostExamples = this.character.initialTradeOfferPostExamples
+            ?.sort(() => 0.5 - Math.random())
+            .map((example) => `${example}`)
+            .slice(0, 5)
+            .join("\n")
+            .replaceAll("\n", "") || "";
+
+        const formattedNextTradeOfferPostExamples = this.character.nextTradeOfferPostExamples
+            ?.sort(() => 0.5 - Math.random())
+            .map((example) => `${example}`)
+            .slice(0, 5)
+            .join("\n")
+            .replaceAll("\n", "") || "";
+
+        const formattedFinalTradeOfferPostExamples = this.character.finalTradeOfferPostExamples
+            ?.sort(() => 0.5 - Math.random())
+            .map((example) => `${example}`)
+            .slice(0, 5)
+            .join("\n")
+            .replaceAll("\n", "") || "";
+
+        const formattedAcceptDealPostExamples = this.character.acceptDealPostExamples
+            ?.sort(() => 0.5 - Math.random())
+            .map((example) => `${example}`)
+            .slice(0, 5)
+            .join("\n")
+            .replaceAll("\n", "") || "";
+
+        const formattedNegotiationsFailedPostExamples = this.character.negotiationsFailedPostExamples
+            ?.sort(() => 0.5 - Math.random())
+            .map((example) => `${example}`)
+            .slice(0, 5)
+            .join("\n")
+            .replaceAll("\n", "") || "";
+
+        const formattedEscrowCompletePostExamples= this.character.escrowCompletePostExamples
+            ?.sort(() => 0.5 - Math.random())
+            .map((example) => `${example}`)
+            .slice(0, 5)
+            .join("\n")
+            .replaceAll("\n", "") || "";
+
+        const formattedInitiatedTransferPostExamples = this.character.initiatedTransferPostExamples
+            ?.sort(() => 0.5 - Math.random())
+            .map((example) => `${example}`)
+            .slice(0, 5)
+            .join("\n")
+            .replaceAll("\n", "") || "";
+
+        const formattedNonWhitelistedUserPostExamples = this.character.nonWhitelistedUserPostExamples
+            ?.sort(() => 0.5 - Math.random())
+            .map((example) => `${example}`)
+            .slice(0, 5)
+            .join("\n")
+            .replaceAll("\n", "") || "";
+
+        const formattedHasTooRecentAnInteractionPostExamples = this.character.hasTooRecentAnInteractionPostExamples
+            ?.sort(() => 0.5 - Math.random())
+            .map((example) => `${example}`)
+            .slice(0, 5)
+            .join("\n")
+            .replaceAll("\n", "") || "";
+
+        const formattedAllianceIntents = this.character.allianceIntents
+            ?.sort(() => 0.5 - Math.random())
+            .map((example) => `${example}`)
+            .join("\n")
+            .replaceAll("\n", "") || "";
+
         const formattedCharacterMessageExamples = this.character.messageExamples
             .sort(() => 0.5 - Math.random())
             .slice(0, 5)
@@ -1092,6 +1161,86 @@ Text: ${attachment.text}
                               return [...all, ...chat].join("\n");
                           })()
                       )
+                    : "",
+            initialTradeOfferPostExamples:
+                formattedInitialTradeOfferPostExamples &&
+                formattedInitialTradeOfferPostExamples.replaceAll("\n", "").length > 0
+                    ? addHeader(
+                        `# Initial Offer Post Examples for ${this.character.name}`,
+                        formattedInitialTradeOfferPostExamples
+                    )
+                    : "",
+            nextTradeOfferPostExamples:
+                formattedNextTradeOfferPostExamples &&
+                formattedNextTradeOfferPostExamples.replaceAll("\n", "").length > 0
+                    ? addHeader(
+                        `# Next Offer Post Examples for ${this.character.name}`,
+                        formattedNextTradeOfferPostExamples
+                    )
+                    : "",
+            finalTradeOfferPostExamples:
+                formattedFinalTradeOfferPostExamples &&
+                formattedFinalTradeOfferPostExamples.replaceAll("\n", "").length > 0
+                    ? addHeader(
+                        `# Final Offer Post Examples for ${this.character.name}`,
+                        formattedFinalTradeOfferPostExamples
+                    )
+                    : "",
+            acceptDealPostExamples:
+                formattedAcceptDealPostExamples &&
+                formattedAcceptDealPostExamples.replaceAll("\n", "").length > 0
+                    ? addHeader(
+                        `# Negotiations Accepted Examples for ${this.character.name}`,
+                        formattedAcceptDealPostExamples
+                    )
+                    : "",
+            negotiationsFailedPostExamples:
+                formattedNegotiationsFailedPostExamples &&
+                formattedNegotiationsFailedPostExamples.replaceAll("\n", "").length > 0
+                    ? addHeader(
+                        `# Negotiations Failed Examples for ${this.character.name}`,
+                        formattedNegotiationsFailedPostExamples
+                    )
+                    : "",
+            escrowCompletePostExamples:
+                formattedEscrowCompletePostExamples &&
+                formattedEscrowCompletePostExamples.replaceAll("\n", "").length > 0
+                    ? addHeader(
+                        `# Escrow Complete Examples for ${this.character.name}`,
+                       formattedEscrowCompletePostExamples
+                    )
+                    : "",
+            initiatedTransferPostExamples:
+                formattedInitiatedTransferPostExamples &&
+                formattedInitiatedTransferPostExamples.replaceAll("\n", "").length > 0
+                    ? addHeader(
+                        `# Initiated Transfer Examples for ${this.character.name}`,
+                       formattedInitiatedTransferPostExamples
+                    )
+                    : "",
+            nonWhitelistedUserPostExamples:
+                formattedNonWhitelistedUserPostExamples &&
+                formattedNonWhitelistedUserPostExamples.replaceAll("\n", "").length > 0
+                    ? addHeader(
+                        `# Non-Whitelisted User Examples for ${this.character.name}`,
+                        formattedNonWhitelistedUserPostExamples
+                    )
+                    : "",
+            hasTooRecentAnInteractionPostExamples:
+                formattedHasTooRecentAnInteractionPostExamples &&
+                formattedHasTooRecentAnInteractionPostExamples.replaceAll("\n", "").length > 0
+                    ? addHeader(
+                        `# Has Too Recent An Interaction Examples for ${this.character.name}`,
+                        formattedHasTooRecentAnInteractionPostExamples
+                    )
+                    : "",
+            allianceIntents:
+                formattedAllianceIntents &&
+                formattedAllianceIntents.replaceAll("\n", "").length > 0
+                    ? addHeader(
+                        `# Alliance Intents for ${this.character.name}`,
+                        formattedAllianceIntents
+                    )
                     : "",
 
             postDirections:

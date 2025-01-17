@@ -719,16 +719,6 @@ export type Character = {
         discordMessageHandlerTemplate?: string;
         slackMessageHandlerTemplate?: string;
         slackShouldRespondTemplate?: string;
-        initialTradeOfferPostExamples?: string[];
-        nextTradeOfferPostExamples?: string[];
-        finalTradeOfferPostExamples?: string[];
-        acceptDealPostExamples?: string[];
-        escrowCompletePostExamples?: string[];
-        initiatedTransferPostExamples?: string[];
-        negotiationsFailedPostExamples?: string[];
-        nonWhitelistedUserPostExamples?: string[];
-        hasTooRecentAnInteractionPostExamples?: string[];
-        allianceIntents?: string[];
     };
 
     /** Character biography */
@@ -736,6 +726,17 @@ export type Character = {
 
     /** Character background lore */
     lore: string[];
+
+    initialTradeOfferPostExamples?: string[];
+    nextTradeOfferPostExamples?: string[];
+    finalTradeOfferPostExamples?: string[];
+    acceptDealPostExamples?: string[];
+    escrowCompletePostExamples?: string[];
+    initiatedTransferPostExamples?: string[];
+    negotiationsFailedPostExamples?: string[];
+    nonWhitelistedUserPostExamples?: string[];
+    hasTooRecentAnInteractionPostExamples?: string[];
+    allianceIntents?: string[];
 
     /** Example messages */
     messageExamples: MessageExample[][];
