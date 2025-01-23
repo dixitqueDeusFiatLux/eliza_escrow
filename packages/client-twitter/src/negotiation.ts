@@ -740,12 +740,7 @@ export class NegotiationHandler {
                 modelClass: ModelClass.MEDIUM,
             });
 
-            const responseContent: Content = {
-                text: tradeOffer.text,
-                inReplyTo: stringToUuid(tweet.id),
-            };
-
-            await sendTweet(this.client, responseContent, message.roomId, settings.TWITTER_USERNAME, tweet.id);
+            await this.sendReply(tweet, message, tradeOffer.text, tweet.id);
 
             const conversationId = tweet.conversationId;
             const last_interaction = negotiationState.last_interaction ?? new Date().toISOString();
