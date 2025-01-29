@@ -17,7 +17,6 @@ import {
 } from "@elizaos/core";
 import { ClientBase } from "./base";
 import { buildConversationThread, sendTweet, wait } from "./utils.ts";
-import { NegotiationHandler } from "./negotiation";
 import path from "path";
 import fs from "fs";
 import { promises as fsPromises } from 'fs';
@@ -96,42 +95,38 @@ Thread of Tweets You Are Replying To:
 export class TwitterInteractionClient {
     client: ClientBase;
     runtime: IAgentRuntime;
-
-    private negotiationHandler: NegotiationHandler;
-
-    private lastCheckedHomeTimelineId: number | null = null;
     private homeTimelineCacheFilePath = __dirname + "/tweetcache/latest_home_timeline_id.txt";
-    private tradeRequestsPath: string;
+    private interactionCacheFilePath = __dirname + "/tweetcache/latest_interaction_id.txt";
+    private lastCheckedHomeTimelineId: string | null = null;
+    private lastCheckedInteractionId: string | null = null;
 
     constructor(client: ClientBase, runtime: IAgentRuntime) {
         this.client = client;
         this.runtime = runtime;
-        this.tradeRequestsPath = path.resolve(__dirname, 'engagement', 'trade_requests');
-        this.negotiationHandler = new NegotiationHandler(this.client);
 
         try {
             if (fs.existsSync(this.homeTimelineCacheFilePath)) {
                 const data = fs.readFileSync(this.homeTimelineCacheFilePath, "utf-8");
-                this.lastCheckedHomeTimelineId = parseInt(data.trim());
+                this.lastCheckedHomeTimelineId = data.trim();
             }
         } catch (error) {
             console.error("Error loading latest home timeline tweet ID:", error);
+        }
+
+        try {
+            if (fs.existsSync(this.interactionCacheFilePath)) {
+                const data = fs.readFileSync(this.interactionCacheFilePath, "utf-8");
+                this.lastCheckedInteractionId = data.trim();
+            }
+        } catch (error) {
+            console.error("Error loading latest interaction tweet ID:", error);
         }
 
         const dir = path.dirname(this.homeTimelineCacheFilePath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
-
-        const engagementDir = path.resolve(__dirname, 'engagement');
-        if (!fs.existsSync(engagementDir)) {
-            fs.mkdirSync(engagementDir, { recursive: true });
-        }
-        if (!fs.existsSync(this.tradeRequestsPath)) {
-            fs.mkdirSync(this.tradeRequestsPath, { recursive: true });
-        }
     }
-
 
     async start() {
         const handleTwitterInteractionsLoop = () => {
@@ -271,28 +266,9 @@ export class TwitterInteractionClient {
             // for each tweet candidate, handle the tweet
             for (const tweet of uniqueTweetCandidates) {
                 if (
-                    !this.client.lastCheckedTweetId ||
-                    BigInt(tweet.id) > this.client.lastCheckedTweetId
+                    !this.lastCheckedInteractionId ||
+                    BigInt(tweet.id) > BigInt(this.lastCheckedInteractionId)
                 ) {
-                    // Generate the tweetId UUID the same way it's done in handleTweet
-                    const tweetId = stringToUuid(
-                        tweet.id + "-" + this.runtime.agentId
-                    );
-
-                    // Check if we've already processed this tweet
-                    /*
-                    const existingResponse =
-                        await this.runtime.messageManager.getMemoryById(
-                            tweetId
-                        );
-
-                    if (existingResponse) {
-                        elizaLogger.log(
-                            `Already responded to tweet ${tweet.id}, skipping`
-                        );
-                        continue;
-                    }
-                    */
                     elizaLogger.log("New Tweet found", tweet.permanentUrl);
 
                     const roomId = stringToUuid(
@@ -324,43 +300,28 @@ export class TwitterInteractionClient {
                         roomId,
                     };
 
-                    let isNegotiation = false;
-                    if (tweet.mentions.some(mention => mention.username === this.runtime.getSetting("TWITTER_USERNAME"))) {
-                        isNegotiation = await this.negotiationHandler.isNegotiation(tweet, message);
-                        if (isNegotiation) {
-                            elizaLogger.log("isNegotiation, saving trade request", tweet.id);
-                            await this.saveTradeRequest(tweet, thread, message);
-                        }
-                    }
-                    if (!isNegotiation) {
-                        await this.handleTweet({
-                            tweet,
-                            message,
-                            thread,
-                        });
-                    }
-
-                    console.log("Is negotiation", isNegotiation);
+                    await this.handleTweet({
+                        tweet,
+                        message,
+                        thread,
+                    });
 
                     // Update the last checked tweet ID after processing each tweet
-                    this.client.lastCheckedTweetId = BigInt(tweet.id);
-                }
-            }
+                    this.lastCheckedInteractionId = tweet.id;
 
-            // Save the latest checked tweet ID to the file
-            await this.client.cacheLatestCheckedTweetId();
-
-            const tradeFiles = await fsPromises.readdir(this.tradeRequestsPath);
-            for (const file of tradeFiles) {
-                if (file.endsWith('.json')) {
-                    const filePath = path.join(this.tradeRequestsPath, file);
-                    const content = await fsPromises.readFile(filePath, 'utf-8');
-                    const { tweet, thread, message } = JSON.parse(content);
-
-                    const wasHandled = await this.negotiationHandler.handleNegotiation(tweet, thread, message);
-                    elizaLogger.log("wasHandled", wasHandled, tweet.id);
-                    if (wasHandled) {
-                        await fsPromises.unlink(filePath);
+                    try {
+                        if (this.lastCheckedInteractionId) {
+                            fs.writeFileSync(
+                                this.interactionCacheFilePath,
+                                this.lastCheckedInteractionId,
+                                "utf-8"
+                            );
+                        }
+                    } catch (error) {
+                        elizaLogger.error(
+                            "Error saving latest checked interaction tweet ID to file:",
+                            error
+                        );
                     }
                 }
             }
@@ -389,7 +350,7 @@ export class TwitterInteractionClient {
             for (const tweet of uniqueTweets) {
                 if (
                     !this.lastCheckedHomeTimelineId ||
-                    parseInt(tweet.id) > this.lastCheckedHomeTimelineId
+                    BigInt(tweet.id) > BigInt(this.lastCheckedHomeTimelineId)
                 ) {
                     const conversationId =
                         tweet.conversationId + "-" + this.runtime.agentId;
@@ -415,28 +376,19 @@ export class TwitterInteractionClient {
                         roomId,
                     };
 
-                    // Check if it's a negotiation before handling
-                    const isNegotiation = await this.negotiationHandler.isNegotiation(tweet, message);
-                    if (tweet.username.toLowerCase() !== this.client.twitterConfig.TWITTER_USERNAME.toLowerCase()) {
-                        if (isNegotiation) {
-                            elizaLogger.log("isNegotiation, saving trade request", tweet.id);
-                            await this.saveTradeRequest(tweet, thread, message);
-                        } else {
-                            await this.handleTweet({
-                                tweet,
-                                message,
-                                thread,
-                            });
-                        }
-                    }
+                    await this.handleTweet({
+                        tweet,
+                        message,
+                        thread,
+                    });
 
-                    this.lastCheckedHomeTimelineId = parseInt(tweet.id);
+                    this.lastCheckedHomeTimelineId = tweet.id;
 
                     try {
                         if (this.lastCheckedHomeTimelineId) {
                             fs.writeFileSync(
                                 this.homeTimelineCacheFilePath,
-                                this.lastCheckedHomeTimelineId.toString(),
+                                this.lastCheckedHomeTimelineId,
                                 "utf-8"
                             );
                         }
@@ -460,6 +412,7 @@ export class TwitterInteractionClient {
         }
     }
 
+
     private async handleTweet({
         tweet,
         message,
@@ -470,7 +423,6 @@ export class TwitterInteractionClient {
         thread: Tweet[];
     }) {
         if (tweet.userId === this.client.profile.id) {
-            // console.log("skipping tweet from bot itself", tweet.id);
             // Skip processing if the tweet is from the bot itself
             return;
         }
@@ -508,6 +460,9 @@ export class TwitterInteractionClient {
         let state = await this.runtime.composeState(message, {
             twitterClient: this.client.twitterClient,
             twitterUserName: this.client.twitterConfig.TWITTER_USERNAME,
+            username: tweet.username,
+            tweetId: tweet.id,
+            conversationId: tweet.conversationId,
             currentPost,
             formattedConversation,
         });
@@ -543,30 +498,6 @@ export class TwitterInteractionClient {
             this.client.saveRequestMessage(message, state);
         }
 
-        // get usernames into str
-        const validTargetUsersStr = this.client.twitterConfig.TWITTER_TARGET_USERS.join(",");
-
-        const shouldRespondContext = composeContext({
-            state,
-            template:
-                this.runtime.character.templates
-                    ?.twitterShouldRespondTemplate ||
-                this.runtime.character?.templates?.shouldRespondTemplate ||
-                twitterShouldRespondTemplate(validTargetUsersStr),
-        });
-
-        const shouldRespond = await generateShouldRespond({
-            runtime: this.runtime,
-            context: shouldRespondContext,
-            modelClass: ModelClass.MEDIUM,
-        });
-
-        // Promise<"RESPOND" | "IGNORE" | "STOP" | null> {
-        if (shouldRespond !== "RESPOND") {
-            elizaLogger.log("Not responding to message");
-            return { text: "Response Decision:", action: shouldRespond };
-        }
-
         const context = composeContext({
             state,
             template:
@@ -595,7 +526,97 @@ export class TwitterInteractionClient {
 
         if (response.text) {
             try {
+                let actionMessage: Content | null = null;
+
                 const callback: HandlerCallback = async (response: Content) => {
+                    actionMessage = response;
+                    // Just store the message without sending tweet
+                    return [];
+                };
+
+                state = (await this.runtime.updateRecentMessageState(
+                    state
+                )) as State;
+
+                const responseMessage: Memory = {
+                    id: stringToUuid(tweet.id + "-" + this.runtime.agentId),
+                    agentId: this.runtime.agentId,
+                    userId: this.runtime.agentId,
+                    roomId: message.roomId,
+                    content: response,
+                    createdAt: Date.now(),
+                };
+
+                await this.runtime.messageManager.createMemory(responseMessage);
+
+                // Check if we have an action
+                const action = this.runtime.actions.find(
+                    (a) => a.name === response.action
+                );
+
+                if (action) {
+                    // Handle action-based response
+                    await this.runtime.processActions(
+                        message,
+                        [responseMessage],
+                        state,
+                        callback
+                    );
+
+                    await this.runtime.evaluate(message, state);
+
+                    const shouldSuppressInitialMessage = action?.suppressInitialMessage;
+
+                    elizaLogger.log("Action:", action?.name);
+                    elizaLogger.log("Should suppress initial message:", shouldSuppressInitialMessage);
+
+                    if (!shouldSuppressInitialMessage) {
+                        // Send initial response
+                        await sendTweet(
+                            this.client,
+                            response,
+                            message.roomId,
+                            this.client.twitterConfig.TWITTER_USERNAME,
+                            tweet.id
+                        );
+                    }
+
+                    if (actionMessage) {
+                        // Send action message
+                        await sendTweet(
+                            this.client,
+                            actionMessage,
+                            message.roomId,
+                            this.client.twitterConfig.TWITTER_USERNAME,
+                            tweet.id
+                        );
+                    }
+                } else {
+                    // No action found, fall back to regular tweet handling
+                    // get usernames into str
+                    const validTargetUsersStr = this.client.twitterConfig.TWITTER_TARGET_USERS.join(",");
+
+                    const shouldRespondContext = composeContext({
+                        state,
+                        template:
+                            this.runtime.character.templates
+                                ?.twitterShouldRespondTemplate ||
+                            this.runtime.character?.templates?.shouldRespondTemplate ||
+                            twitterShouldRespondTemplate(validTargetUsersStr),
+                    });
+
+                    const shouldRespond = await generateShouldRespond({
+                        runtime: this.runtime,
+                        context: shouldRespondContext,
+                        modelClass: ModelClass.MEDIUM,
+                    });
+
+                    if (shouldRespond !== "RESPOND") {
+                        elizaLogger.log("Not responding to message");
+                        return { text: "Response Decision:", action: shouldRespond };
+                    }
+
+                    // For regular responses, send tweet
                     const memories = await sendTweet(
                         this.client,
                         response,
@@ -603,35 +624,23 @@ export class TwitterInteractionClient {
                         this.client.twitterConfig.TWITTER_USERNAME,
                         tweet.id
                     );
-                    return memories;
-                };
 
-                const responseMessages = await callback(response);
-
-                state = (await this.runtime.updateRecentMessageState(
-                    state
-                )) as State;
-
-                for (const responseMessage of responseMessages) {
-                    if (
-                        responseMessage ===
-                        responseMessages[responseMessages.length - 1]
-                    ) {
-                        responseMessage.content.action = response.action;
-                    } else {
-                        responseMessage.content.action = "CONTINUE";
+                    for (const memory of memories) {
+                        if (memory === memories[memories.length - 1]) {
+                            memory.content.action = response.action;
+                        } else {
+                            memory.content.action = "CONTINUE";
+                        }
+                        await this.runtime.messageManager.createMemory(memory);
                     }
-                    await this.runtime.messageManager.createMemory(
-                        responseMessage
+
+                    await this.runtime.processActions(
+                        message,
+                        memories,
+                        state,
+                        callback
                     );
                 }
-
-                await this.runtime.processActions(
-                    message,
-                    responseMessages,
-                    state,
-                    callback
-                );
 
                 const responseInfo = `Context:\n\n${context}\n\nSelected Post: ${tweet.id} - ${tweet.username}: ${tweet.text}\nAgent's Output:\n${response.text}`;
 
@@ -639,6 +648,7 @@ export class TwitterInteractionClient {
                     `twitter/tweet_generation_${tweet.id}.txt`,
                     responseInfo
                 );
+
                 await wait();
             } catch (error) {
                 elizaLogger.error(`Error sending response tweet: ${error}`);
@@ -777,37 +787,5 @@ export class TwitterInteractionClient {
         });
 
         return thread;
-    }
-
-    private async saveTradeRequest(tweet: Tweet, thread: Tweet[], message: Memory) {
-        const cleanTweet = {
-            id: tweet.id,
-            text: tweet.text,
-            username: tweet.username,
-            timestamp: tweet.timestamp,
-            conversationId: tweet.conversationId,
-            userId: tweet.userId,
-            mentions: tweet.mentions,
-            permanentUrl: tweet.permanentUrl
-        };
-
-        const cleanThread = thread.map(t => ({
-            id: t.id,
-            text: t.text,
-            username: t.username,
-            timestamp: t.timestamp,
-            conversationId: t.conversationId,
-            userId: t.userId,
-            mentions: t.mentions,
-            permanentUrl: t.permanentUrl
-        }));
-
-        const tradeRequest = {
-            tweet: cleanTweet,
-            thread: cleanThread,
-            message
-        };
-        const filePath = path.join(this.tradeRequestsPath, `${tweet.id}.json`);
-        await fsPromises.writeFile(filePath, JSON.stringify(tradeRequest, null, 2));
     }
 }
