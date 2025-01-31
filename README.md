@@ -203,6 +203,10 @@ The file negotiation_settings.json contains essential settings and parameters fo
 
 ---
 
+# Example Negotiation Flow on X
+![Negotiation Thread](./negotiations_thread.png)
+![Deal Thread](./deal_thread.png)
+
 # Smart Contract & Token Polling States
 
 ## Smart Contract Overview
