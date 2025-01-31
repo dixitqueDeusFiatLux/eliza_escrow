@@ -34,7 +34,7 @@ export const solanaPlugin: Plugin = {
         //executeSwapForDAO,
         //take_order,
     ],
-    evaluators: [trustEvaluator],
+    evaluators: [],
     providers: [{
         get: async (runtime: IAgentRuntime, _message: Memory, _state?: State): Promise<string> => {
             if (!walletProviderInstance) {

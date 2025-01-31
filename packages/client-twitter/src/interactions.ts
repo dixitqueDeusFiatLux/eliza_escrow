@@ -341,13 +341,14 @@ export class TwitterInteractionClient {
             // de-duplicate tweets with a set
             const uniqueTweets = [...new Set(timelineTweets)];
 
-            // Sort tweets by ID in ascending order and filter out our own tweets
-            uniqueTweets
+            // Filter out undefined/null tweets and sort by ID
+            const sortedTweets = uniqueTweets
+                .filter(tweet => tweet && tweet.id) // Remove any null/undefined tweets
                 .sort((a, b) => a.id.localeCompare(b.id))
                 .filter((tweet) => tweet.userId !== this.client.profile.id);
 
             // for each tweet, handle it if it's new
-            for (const tweet of uniqueTweets) {
+            for (const tweet of sortedTweets) {
                 if (
                     !this.lastCheckedHomeTimelineId ||
                     BigInt(tweet.id) > BigInt(this.lastCheckedHomeTimelineId)
