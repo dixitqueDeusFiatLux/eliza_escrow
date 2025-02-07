@@ -471,7 +471,7 @@ export async function evaluateProposedDeal(
         const tokenInfo = await generateMessageResponse({
             runtime,
             context: evaluationContext,
-            modelClass: ModelClass.SMALL,
+            modelClass: ModelClass.LARGE,
         });
 
         elizaLogger.log("Token info", tokenInfo);
@@ -643,10 +643,21 @@ export async function acceptDeal(
                 return false;
             }
         } else {
-            // TODO: Add logic to handle non-initiator trades
             elizaLogger.log("Waiting for escrow to be initiated");
             negotiationStatus = 'waiting_for_escrow';
-            tradeMessage = ``;
+            state.actions = "";
+            const context = composeContext({
+                state,
+                template: acceptDealTemplate
+            });
+
+            const response = await generateMessageResponse({
+                runtime,
+                context,
+                modelClass: ModelClass.MEDIUM,
+            });
+
+            tradeMessage = response.text;
         }
 
         state.acceptDealPostExamples = runtime.character.acceptDealPostExamples;
@@ -659,21 +670,7 @@ export async function acceptDeal(
         state.counterPartyTokenAmount = negotiationState.current_offer.counterparty_amount;
         state.counterPartyTokenSymbol = user.token_symbol;
 
-        state.actions = "";
-
         elizaLogger.log(`Accepted deal with ${user.username}`);
-        const context = composeContext({
-            state,
-            template: acceptDealTemplate
-        });
-
-        const response = await generateMessageResponse({
-            runtime,
-            context,
-            modelClass: ModelClass.MEDIUM,
-        });
-
-        const fullResponse = tradeMessage + response.text;
 
         const last_interaction = negotiationState.last_interaction ?? new Date().toISOString();
 
@@ -684,7 +681,7 @@ export async function acceptDeal(
             last_interaction: last_interaction
         });
 
-        return fullResponse;
+        return tradeMessage;
     } catch (error) {
         elizaLogger.error("Error in acceptDeal:", {
             message: error instanceof Error ? error.message : 'Unknown error',

@@ -44,7 +44,7 @@ Recent interactions between {{agentName}} and other users:
 
 {{recentPosts}}
 
-# TASK: Generate a post/reply in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}) while using the thread of tweets as additional context:
+# TASK: Generate a post/reply in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}) while using the thread of tweets as additional context. Do NOT @ the user in your response:
 
 Current Post:
 {{currentPost}}
@@ -596,6 +596,7 @@ export class TwitterInteractionClient {
                     // No action found, fall back to regular tweet handling
                     // get usernames into str
                     const validTargetUsersStr = this.client.twitterConfig.TWITTER_TARGET_USERS.join(",");
+                    state.actions = "";
 
                     const shouldRespondContext = composeContext({
                         state,
