@@ -14,7 +14,7 @@ import { Connection } from "@solana/web3.js";
 
 export const hasAcceptedOfferAction: Action = {
     name: "HAS_ACCEPTED_OFFER",
-    similes: ["ACCEPTED_TRADE", "ACCEPTED_DEAL"],
+    similes: ["ACCEPTED_TRADE", "ACCEPTED_DEAL", "INITIATED_TRANSFER"],
     description: "Evaluates if a message indicates acceptance of a trade offer",
     validate: async (runtime: IAgentRuntime, message: Memory, state: State) => {
         elizaLogger.log("Validating has accepted offer");
@@ -143,6 +143,17 @@ export const hasAcceptedOfferAction: Action = {
                 user: "{{agentName}}",
                 content: {
                     text: "I accept the trade and have initiated the transfer",
+                    action: "TRADE"
+                },
+            },
+            {
+                user: "{{user1}}",
+                content: { text: "Deal. I have sent 131 $CAR Tx ID: send the 139 $DOGE to the escrow address: ." },
+            },
+            {
+                user: "{{agentName}}",
+                content: {
+                    text: "I accept the trade and have sent the tokens",
                     action: "TRADE"
                 },
             },

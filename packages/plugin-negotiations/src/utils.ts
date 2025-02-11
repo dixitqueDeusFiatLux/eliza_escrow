@@ -3,11 +3,16 @@ import { Connection, PublicKey, Keypair } from "@solana/web3.js";
 import path from "path";
 import fs from "fs";
 import yaml from "js-yaml";
-import { WhitelistedUser, CounterpartyTier, NegotiationSettings, NegotiationState } from "./types";
+import {
+    WhitelistedUser,
+    CounterpartyTier,
+    NegotiationSettings,
+    NegotiationState,
+    TokenAction
+} from "./types";
 import { fetchTokenData, getAveragedPrice, getSplTokenHoldings, TokenPollingService, PollingTask } from "@elizaos/plugin-solana";
 import { Tweet } from "agent-twitter-client";
 import bs58 from "bs58";
-import { text } from "stream/consumers";
 
 const __dirname = path.resolve();
 
@@ -66,7 +71,6 @@ export async function evaluateHasOfferedTokens(runtime: IAgentRuntime, state: St
         throw error;
     }
 }
-
 
 export function loadNegotiationSettings(): NegotiationSettings {
     try {
@@ -185,7 +189,6 @@ export async function isAllianceIntent(runtime: IAgentRuntime, state: State, tex
 
     return isAlliance;
 }
-
 
 export async function saveNegotiationState(runtime: IAgentRuntime, username: string, newState: Partial<NegotiationState>) {
     const stateKey = `negotiation_state_${username}`;
@@ -351,16 +354,6 @@ export async function getFormattedAllyList(runtime: IAgentRuntime): Promise<stri
     return allyList.join("\n\n");
 }
 
-interface TokenAction {
-    counterparty_token_amount: number;
-    our_token_amount: number;
-}
-
-interface TokenPrices {
-    our_token_price: number;
-    counterparty_token_price: number;
-}
-
 export async function getTokenPrices(runtime: IAgentRuntime, user: WhitelistedUser): Promise<{ our_token_price: number, counterparty_token_price: number } | null> {
     const negotiationSettings = loadNegotiationSettings();
 
@@ -449,9 +442,10 @@ export async function evaluateProposedDeal(
         Current proposal:
         {{proposalText}}
 
-        Extract the following information about token amounts:
-        - ${user.token_symbol} tokens offered
-        - ${negotiationSettings.our_token.symbol} tokens requested
+       Extract the following information about token amounts:
+        - ${user.token_symbol} tokens offered (counterparty_token_amount)
+        - ${negotiationSettings.our_token.symbol} tokens requested (our_token_amount)
+
 
         ONLY respond with a JSON object:
         {
@@ -691,7 +685,6 @@ export async function acceptDeal(
         return false;
     }
 }
-
 
 export async function offerTradeDeal(runtime: IAgentRuntime, state: State, tweet: Tweet, thread: Tweet[], message: Memory, user: WhitelistedUser, negotiationState: NegotiationState): Promise<string> {
     try {

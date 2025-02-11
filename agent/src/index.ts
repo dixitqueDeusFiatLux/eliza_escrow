@@ -65,6 +65,7 @@ import { avalanchePlugin } from "@elizaos/plugin-avalanche";
 import { webSearchPlugin } from "@elizaos/plugin-web-search";
 import { echoChamberPlugin } from "@elizaos/plugin-echochambers";
 import { negotiationsPlugin } from "@elizaos/plugin-negotiations";
+import { NegotiationService } from "@elizaos/plugin-negotiations";
 import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
@@ -709,6 +710,9 @@ async function startAgent(
         // start services/plugins/process knowledge
         await runtime.initialize();
 
+        const negotiationService = NegotiationService.getInstance(runtime);
+        await negotiationService.initialize(runtime);
+
         // start assigned clients
         runtime.clients = await initializeClients(character, runtime);
 
@@ -763,8 +767,11 @@ const startAgents = async () => {
     }
 
     try {
+        const negotiationService = NegotiationService.getInstance(null);
+
         for (const character of characters) {
-            await startAgent(character, directClient);
+            const runtime = await startAgent(character, directClient);
+            await negotiationService.initialize(runtime);
         }
     } catch (error) {
         elizaLogger.error("Error starting agents:", error);

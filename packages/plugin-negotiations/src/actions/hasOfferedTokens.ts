@@ -9,7 +9,7 @@ import {
     elizaLogger,
     settings
 } from "@elizaos/core";
-import { isWhitelistedUser, evaluateHasOfferedTokens, evaluateProposedDeal, loadNegotiationState, offerTradeDeal, acceptDeal, endNegotiation, hasTooRecentAnInteraction, clearNegotiationState, adjustOfferLimits } from "../utils";
+import { isWhitelistedUser, evaluateHasOfferedTokens, evaluateProposedDeal, loadNegotiationState, offerTradeDeal, acceptDeal, endNegotiation, hasTooRecentAnInteraction, clearNegotiationState, adjustOfferLimits, initiateTransfer, hasInitiatedTransfer } from "../utils";
 import { TwitterStateWithBase } from "../types";
 import { Tweet } from "agent-twitter-client";
 import { Connection } from "@solana/web3.js";
@@ -106,7 +106,7 @@ export const hasOfferedTokensAction: Action = {
 
             let negotiationState = await loadNegotiationState(runtime, username);
 
-            if (negotiationState.negotiation_status !== "not_started" && negotiationState.negotiation_status !== "pending") {
+            if (negotiationState.negotiation_status !== "not_started" && negotiationState.negotiation_status !== "pending" && negotiationState.negotiation_status !== "waiting_for_escrow") {
                 if (await hasTooRecentAnInteraction(user, negotiationState)) {
                     elizaLogger.log("Has recent interaction: ignoring", user);
                     return false;
@@ -117,7 +117,7 @@ export const hasOfferedTokensAction: Action = {
                 }
             }
 
-            if (negotiationState.negotiation_status === "pending") {
+            if (negotiationState.negotiation_status === "pending" || negotiationState.negotiation_status === "waiting_for_escrow") {
                 if (negotiationState.conversation_id !== conversationId) {
                     if (await hasTooRecentAnInteraction(user, negotiationState)) {
                         elizaLogger.log("Conversation id does not match and has recent interaction: ignoring", user);
@@ -126,6 +126,27 @@ export const hasOfferedTokensAction: Action = {
                         elizaLogger.log("Resetting user", user);
                         await clearNegotiationState(runtime, username);
                         negotiationState = await loadNegotiationState(runtime, username);
+                    }
+                }
+            }
+
+            if (negotiationState.negotiation_status === "pending" || negotiationState.negotiation_status === "waiting_for_escrow") {
+                const hasInitiatedTransferResult = hasInitiatedTransfer(text);
+                if (hasInitiatedTransferResult) {
+                    const connection = new Connection(settings.RPC_URL, "confirmed");
+
+                    const initiateTransferResponse = await initiateTransfer(runtime, tweet, [], message, user, connection, state);
+                    if (initiateTransferResponse) {
+                        await callback({
+                            text: initiateTransferResponse,
+                            source: "direct"
+                        });
+                        return {
+                            hasAccepted: true,
+                        };
+                    } else {
+                        elizaLogger.error("Failed to initiate transfer");
+                        return { hasAccepted: true, error: true };
                     }
                 }
             }

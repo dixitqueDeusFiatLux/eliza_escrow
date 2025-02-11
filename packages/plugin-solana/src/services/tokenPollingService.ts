@@ -559,11 +559,22 @@ export class TokenPollingService {
       );
 
       console.log(`Exchange executed: ${txid}`);
-      task.status = 'completed';
-      task.completedTime = Date.now();
 
-      if (this.negotiationHandler && task.tweet.id) {
-        await this.negotiationHandler.notifyEscrowComplete(task);
+      const taskIndex = this.state.tasks.findIndex(t => t.escrow === task.escrow);
+      if (taskIndex !== -1) {
+          this.state.tasks[taskIndex].status = 'completed';
+          this.state.tasks[taskIndex].completedTime = Date.now();
+      }
+
+      this.saveState();
+
+      if (this.negotiationHandler && task.tweet) {
+          await this.negotiationHandler.notifyEscrowComplete(task);
+      } else {
+          elizaLogger.log("No negotiation handler or tweet found", {
+              hasHandler: !!this.negotiationHandler,
+              hasTweet: !!task.tweet
+          });
       }
     } catch (error) {
       elizaLogger.error('Error executing exchange:', error);

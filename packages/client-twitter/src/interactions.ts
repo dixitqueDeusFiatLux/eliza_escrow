@@ -19,7 +19,6 @@ import { ClientBase } from "./base";
 import { buildConversationThread, sendTweet, wait } from "./utils.ts";
 import path from "path";
 import fs from "fs";
-import { promises as fsPromises } from 'fs';
 
 const __dirname = path.resolve();
 

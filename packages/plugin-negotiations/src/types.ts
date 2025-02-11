@@ -52,4 +52,9 @@ export interface NegotiationState {
     negotiation_status?: string;
 }
 
+export interface TokenAction {
+    counterparty_token_amount: number;
+    our_token_amount: number;
+}
+
 export type TwitterStateWithBase = State & TwitterState;

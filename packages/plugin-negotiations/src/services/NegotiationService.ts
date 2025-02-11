@@ -1,10 +1,8 @@
-import { Content, IAgentRuntime, Memory, ModelClass, State, UUID, composeContext, elizaLogger, generateMessageResponse, getEmbeddingZeroVector, settings, stringToUuid } from "@elizaos/core";
+import { IAgentRuntime, Memory, ModelClass, State, UUID, composeContext, elizaLogger, generateMessageResponse, getEmbeddingZeroVector, settings, stringToUuid } from "@elizaos/core";
 import { TokenPollingService, PollingTask } from "@elizaos/plugin-solana";
 import { Connection } from "@solana/web3.js";
-import { NegotiationState, WhitelistedUser } from "../types";
-import { getFormattedConversation, loadNegotiationSettings, saveAllyInformation, saveNegotiationState, escrowCompleteTemplate } from "../utils";
+import { getFormattedConversation, saveAllyInformation, saveNegotiationState, escrowCompleteTemplate } from "../utils";
 import { Scraper, Tweet } from "agent-twitter-client";
-import sendTweet from "@elizaos/client-twitter";
 
 export class NegotiationService {
     private static instance: NegotiationService;
@@ -16,7 +14,6 @@ export class NegotiationService {
         this.runtime = runtime;
         const connection = new Connection(settings.RPC_URL, "confirmed");
         this.pollingService = TokenPollingService.getInstance(connection);
-        this.pollingService.setNegotiationHandler(this);
         this.scraper = new Scraper();
     }
 
@@ -29,6 +26,7 @@ export class NegotiationService {
 
     public async initialize(runtime: IAgentRuntime): Promise<void> {
         this.runtime = runtime;
+        this.pollingService.setNegotiationHandler(this);
     }
 
     async getCachedCookies(username: string) {
