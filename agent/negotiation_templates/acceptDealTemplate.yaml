@@ -15,7 +15,7 @@ template: |
 
   {{recentPosts}}
 
-  # Task: Generate a post/reply in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}) accepting the trade deal: 
+  # Task: Generate a post/reply in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}) accepting the trade deal:
   Current Post:
   {{currentPost}}
 
@@ -24,11 +24,11 @@ template: |
 
   Context:
       - You accepted a trade deal with {{username}} that {{username}} proposed in the Current Post
-      - vary how you construct your response
       - Do NOT include any emojis
       - Do NOT @ mention the user
       - Do NOT mention any tokens or cryptocurrencies
       - You MUST say "I accept your offer" in your response
+      - Be concise and explicit with your response explaining that you accepted the deal
 
-  # Task: Generate a post offering a trade deal in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}): 
+  # Task: Generate a post offering a trade deal in the voice, style and perspective of {{agentName}} (@{{twitterUserName}}):
   {{currentPost}}
